@@ -1,0 +1,20 @@
+config pcdn-detect 'main'
+	# 是否开机自启
+	option enabled '0'
+
+	# pcdn-detect 的 TOML 配置文件（本页「配置」标签在线编辑）
+	option config_path '/etc/pcdn-detect/pcdn-detect.toml'
+
+	# pcdn-detect 可执行文件路径（也可在「下载/更新」中自动下载安装）
+	option bin_path '/usr/bin/pcdn-detect'
+
+	# 追加到启动命令的命令行参数，例如 "-i br-lan -n 30 -t 60s"
+	# 命令行参数优先级高于 TOML 配置文件
+	option extra_args ''
+
+	# 下载源：GitHub 仓库（用于推导 Release 下载地址与版本检查）
+	option repo 'Womsxd/pcdn-detector'
+
+	# 可选：完整覆盖下载地址前缀（如使用镜像 / 私有地址）
+	# 留空时使用 https://github.com/<repo>/releases/latest/download
+	option download_base ''

@@ -1,0 +1,281 @@
+<%#
+ luci-app-pcdn-detect 下载 / 更新页
+-%>
+
+<style>
+	.pcdn-up-grid {
+		display: flex;
+		flex-wrap: wrap;
+		gap: 10px;
+		margin-bottom: 12px;
+	}
+	.pcdn-up-item {
+		flex: 1 1 180px;
+		min-width: 160px;
+		padding: 8px 10px;
+		border: 1px solid #d9d9d9;
+		border-radius: 4px;
+		background: #fafafa;
+	}
+	.pcdn-up-item span { display: block; font-size: 12px; color: #777; margin-bottom: 4px; }
+	.pcdn-up-item strong { display: block; font-size: 14px; word-break: break-all; }
+	.pcdn-up-url { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin: 8px 0; }
+	.pcdn-up-url input { flex: 1 1 420px; min-width: 220px; }
+	.pcdn-up-actions .cbi-button { margin-right: 6px; margin-bottom: 6px; }
+	.pcdn-up-msg {
+		margin: 8px 0;
+		padding: 6px 8px;
+		border-radius: 3px;
+		display: none;
+		white-space: pre-wrap;
+	}
+	.pcdn-up-msg.ok { display: block; background: #e8f5e9; color: #2e7d32; border: 1px solid #a5d6a7; }
+	.pcdn-up-msg.err { display: block; background: #ffebee; color: #c62828; border: 1px solid #ef9a9a; }
+	.pcdn-up-progress {
+		margin: 8px 0 0 0;
+		padding: 8px;
+		min-height: 180px;
+		max-height: 320px;
+		overflow: auto;
+		background: #1e1e1e;
+		color: #dcdcdc;
+		border-radius: 4px;
+		font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+		font-size: 12px;
+		line-height: 1.5;
+		white-space: pre-wrap;
+		word-break: break-all;
+	}
+	.pcdn-note { color: #777; font-size: 12px; }
+</style>
+
+<div class="pcdn-up-grid">
+	<div class="pcdn-up-item">
+		<span>当前版本</span>
+		<strong id="pcdn-up-version">读取中…</strong>
+	</div>
+	<div class="pcdn-up-item">
+		<span>设备架构</span>
+		<strong id="pcdn-up-arch">—</strong>
+	</div>
+	<div class="pcdn-up-item">
+		<span>安装路径</span>
+		<strong id="pcdn-up-bin" style="font-size:12px;">—</strong>
+	</div>
+	<div class="pcdn-up-item">
+		<span>下载工具</span>
+		<strong id="pcdn-up-tool" style="font-size:13px;">—</strong>
+	</div>
+</div>
+
+<p class="cbi-value-description">
+	下载地址默认按「GitHub 仓库 + 设备架构」推导，Release 资源名形如
+	<code>pcdn-detect-mipsle</code>、<code>pcdn-detect-arm64</code>。项目尚未发布正式版时该地址可能不可用，
+	直接修改下方完整地址即可（需为未压缩的 ELF 二进制）。安装后会自动执行 <code>-v</code> 自检，失败回滚旧版本。
+</p>
+
+<div class="pcdn-up-url">
+	<label for="pcdn-up-url" style="white-space:nowrap;">下载地址</label>
+	<input class="cbi-input-text" type="text" id="pcdn-up-url" placeholder="https://github.com/Womsxd/pcdn-detector/releases/latest/download/pcdn-detect-mipsle" />
+	<button type="button" class="cbi-button cbi-button-neutral" id="pcdn-up-suggest">使用推荐地址</button>
+</div>
+
+<div class="pcdn-up-actions">
+	<button type="button" class="cbi-button cbi-button-action" id="pcdn-up-check">检查最新版本</button>
+	<button type="button" class="cbi-button cbi-button-apply" id="pcdn-up-install">下载并安装</button>
+	<a class="cbi-button cbi-button-neutral" id="pcdn-up-github" href="#" target="_blank" rel="noopener noreferrer">打开 GitHub Release</a>
+</div>
+
+<p id="pcdn-up-msg" class="pcdn-up-msg"></p>
+
+<pre id="pcdn-up-progress" class="pcdn-up-progress">等待操作…</pre>
+
+<script type="text/javascript">//<![CDATA[
+(function() {
+	var U = {
+		info: '<%=url("admin", "services", "pcdn-detect", "updateinfo")%>',
+		check: '<%=url("admin", "services", "pcdn-detect", "checkupdate")%>',
+		run: '<%=url("admin", "services", "pcdn-detect", "doupdate")%>',
+		log: '<%=url("admin", "services", "pcdn-detect", "updatelog")%>'
+	};
+
+	var info = {};
+	var timer = null;
+	var urlEdited = false;
+
+	// 兼容不同 LuCI：部分固件的 XHR 没有 post 方法
+	function xhrPost(url, data, cb) {
+		if (window.XHR && typeof XHR.post === 'function') {
+			return XHR.post(url, data, cb);
+		}
+
+		if (window.LuCI && LuCI.prototype && typeof LuCI.prototype.post === 'function') {
+			return LuCI.prototype.post.call(LuCI.prototype, url, data, cb);
+		}
+
+		if (window.LuCI && typeof LuCI.post === 'function') {
+			return LuCI.post(url, data, cb);
+		}
+
+		var token = '';
+		try {
+			token = (window.LuCI && LuCI.env && LuCI.env.token) || '';
+		} catch (e) {}
+		if (!token) {
+			try {
+				token = (window.XHR && XHR.token) || '';
+			} catch (e) {}
+		}
+
+		var body = [];
+		for (var k in data) {
+			if (Object.prototype.hasOwnProperty.call(data, k)) {
+				body.push(encodeURIComponent(k) + '=' + encodeURIComponent(data[k] == null ? '' : data[k]));
+			}
+		}
+		if (token) {
+			body.push('token=' + encodeURIComponent(token));
+		}
+
+		var xhr = new XMLHttpRequest();
+		xhr.open('POST', url, true);
+		xhr.setRequestHeader('Content-Type', 'application/x-www-form-urlencoded');
+		xhr.onreadystatechange = function() {
+			if (xhr.readyState !== 4) return;
+			var json = null;
+			try { json = JSON.parse(xhr.responseText); } catch (e) {}
+			cb(xhr, json, 0);
+		};
+		xhr.send(body.join('&'));
+	}
+
+	function $(id) { return document.getElementById(id); }
+
+	function showMsg(text, ok) {
+		var el = $('pcdn-up-msg');
+		el.textContent = text || '';
+		el.className = 'pcdn-up-msg ' + (ok ? 'ok' : 'err');
+		if (!text) el.className = 'pcdn-up-msg';
+	}
+
+	function setProgress(text) {
+		var el = $('pcdn-up-progress');
+		var follow = el.scrollTop + el.clientHeight >= el.scrollHeight - 16;
+		el.textContent = text || '';
+		if (follow) el.scrollTop = el.scrollHeight;
+	}
+
+	function loadInfo() {
+		XHR.get(U.info, null, function(x, d) {
+			if (!d || !d.ok) {
+				showMsg('无法读取更新信息', false);
+				return;
+			}
+
+			info = d;
+
+			$('pcdn-up-version').textContent = d.current || '未知（未安装或无法执行）';
+			$('pcdn-up-arch').textContent = (d.arch || '未知') + (d.pkg_arch ? '（' + d.pkg_arch + '）' : '');
+			$('pcdn-up-bin').textContent = d.bin_path || '—';
+			$('pcdn-up-tool').textContent = d.has_curl ? 'curl' : (d.has_wget ? 'wget' : '缺失');
+
+			if (!urlEdited || !$('pcdn-up-url').value) {
+				$('pcdn-up-url').value = d.url || '';
+			}
+
+			var gh = 'https://github.com/' + (d.repo || '');
+			$('pcdn-up-github').href = gh + '/releases';
+
+			if (!d.has_curl && !d.has_wget) {
+				showMsg('系统缺少 curl 与 wget，无法下载。', false);
+			} else if (!d.script_exists) {
+				showMsg('缺少更新脚本 /usr/share/pcdn-detect/update.sh，请重新安装本 LuCI 应用。', false);
+			} else if (d.arch === 'unknown') {
+				showMsg('无法识别设备架构，请手动填写正确的 Release 资源地址。', false);
+			}
+		});
+	}
+
+	function poll() {
+		if (timer) {
+			clearTimeout(timer);
+			timer = null;
+		}
+
+		XHR.get(U.log, null, function(x, d) {
+			if (!d) return;
+
+			setProgress(d.log || '等待输出…');
+
+			if (d.running) {
+				showMsg('正在下载 / 安装，请勿关闭页面…', true);
+				timer = setTimeout(poll, 1200);
+			} else {
+				var failed = (d.log || '').indexOf('更新失败') >= 0;
+				setProgress((d.log || '') + '\n\n任务已结束。');
+				showMsg(failed ? '更新失败，详见上方输出。' : '更新完成，请查看上方输出确认版本。', !failed);
+				loadInfo();
+			}
+		});
+	}
+
+	$('pcdn-up-url').oninput = function() {
+		urlEdited = true;
+	};
+
+	$('pcdn-up-suggest').onclick = function() {
+		urlEdited = false;
+		$('pcdn-up-url').value = info.url || '';
+		showMsg('', true);
+	};
+
+	$('pcdn-up-check').onclick = function() {
+		showMsg('正在检查最新版本…', true);
+		XHR.get(U.check, null, function(x, d) {
+			if (d && d.ok) {
+				showMsg('最新版本：' + d.latest + '（当前：' + (info.current || '未知') + '）', true);
+			} else {
+				showMsg((d && d.message) || '检查失败', false);
+			}
+		});
+	};
+
+	$('pcdn-up-install').onclick = function() {
+		var url = ($('pcdn-up-url').value || '').replace(/^\s+|\s+$/g, '');
+
+		if (!url) {
+			showMsg('请填写下载地址', false);
+			return;
+		}
+		if (!/^https?:\/\//i.test(url)) {
+			showMsg('下载地址必须以 http:// 或 https:// 开头', false);
+			return;
+		}
+
+		if (!confirm('将下载并安装到：\n' + (info.bin_path || '/usr/bin/pcdn-detect')
+			+ '\n\n安装完成后服务会自动重启，继续？')) {
+			return;
+		}
+
+		setProgress('正在创建下载任务…');
+		xhrPost(U.run, { url: url }, function(x, d) {
+			if (!d || !d.ok) {
+				showMsg((d && d.message) || '无法启动下载任务', false);
+				return;
+			}
+			showMsg(d.message || '已开始下载', true);
+			timer = setTimeout(poll, 800);
+		});
+	};
+
+	loadInfo();
+
+	// 页面打开时若有未完成任务，自动接上进度
+	XHR.get(U.log, null, function(x, d) {
+		if (d && d.running) {
+			showMsg('检测到正在进行的下载任务，正在显示进度…', true);
+			poll();
+		}
+	});
+})();
+//]]></script>

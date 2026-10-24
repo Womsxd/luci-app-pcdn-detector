@@ -1,0 +1,347 @@
+<%#
+ luci-app-pcdn-detect 配置编辑页：完整 TOML 文本（纯文本，无解析）
+-%>
+
+<style>
+	.pcdn-cfg-head {
+		margin: 0 0 10px 0;
+		padding: 8px 10px;
+		background: #f7f7f7;
+		border: 1px solid #e3e3e3;
+		border-radius: 4px;
+		font-size: 13px;
+		word-break: break-all;
+	}
+	.pcdn-editor {
+		width: 100%;
+		min-height: 520px;
+		font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+		font-size: 12px;
+		line-height: 1.5;
+		tab-size: 4;
+		white-space: pre;
+		overflow: auto;
+	}
+	.pcdn-cfg-actions { margin-top: 10px; }
+	.pcdn-cfg-actions .cbi-button { margin-right: 6px; margin-bottom: 6px; }
+	.pcdn-result {
+		display: none;
+		margin-top: 12px;
+		padding: 8px 10px;
+		border-radius: 4px;
+		white-space: pre-wrap;
+		word-break: break-all;
+		font-size: 12px;
+		max-height: 260px;
+		overflow: auto;
+	}
+	.pcdn-result.ok { display: block; background: #e8f5e9; border: 1px solid #a5d6a7; color: #2e7d32; }
+	.pcdn-result.err { display: block; background: #ffebee; border: 1px solid #ef9a9a; color: #c62828; }
+	.pcdn-dirty { color: #ef6c00; }
+</style>
+
+<div class="pcdn-cfg-head">
+	配置文件：<code id="pcdn-cfg-path">读取中…</code>
+	<span id="pcdn-cfg-state"></span>
+</div>
+
+<div class="cbi-section">
+	<p class="cbi-value-description">
+		完整 TOML 文本编辑，等同于直接编辑一个 txt 文件。保存时会把全文发回后端，
+		先执行 <code>pcdn-detect -T</code> 校验，失败不会写入；保存成功后运行中的服务通过 SIGHUP 热重载。
+	</p>
+
+	<textarea id="pcdn-cfg-text" class="cbi-input-textarea pcdn-editor" spellcheck="false" autocapitalize="off" autocomplete="off" wrap="off"></textarea>
+
+	<div class="cbi-page-actions pcdn-cfg-actions">
+		<button type="button" class="cbi-button cbi-button-apply" id="pcdn-cfg-save">保存并应用</button>
+		<button type="button" class="cbi-button cbi-button-action" id="pcdn-cfg-validate">仅校验</button>
+		<button type="button" class="cbi-button cbi-button-neutral" id="pcdn-cfg-reload">重新载入</button>
+		<button type="button" class="cbi-button cbi-button-reset" id="pcdn-cfg-reset">恢复默认</button>
+	</div>
+
+	<pre id="pcdn-cfg-result" class="pcdn-result"></pre>
+</div>
+
+<script type="text/javascript">//<![CDATA[
+(function() {
+	// 纯文本模式：getconfig 返回完整文件，saveconfig 接收完整文件。
+	// 前端不做任何 TOML 解析，用户像编辑 txt 一样编辑全文。
+	var U = {
+		get: '<%=url("admin", "services", "pcdn-detect", "getconfig")%>',
+		save: '<%=url("admin", "services", "pcdn-detect", "saveconfig")%>',
+		savechunk: '<%=url("admin", "services", "pcdn-detect", "savechunk")%>',
+		savecommit: '<%=url("admin", "services", "pcdn-detect", "savecommit")%>',
+		reset: '<%=url("admin", "services", "pcdn-detect", "resetsettings")%>'
+	};
+
+	var editor = document.getElementById('pcdn-cfg-text');
+	var dirty = false;
+
+	// 兼容不同 LuCI：部分固件的 XHR 没有 post 方法
+	function xhrPost(url, data, cb) {
+		if (window.XHR && typeof XHR.post === 'function') {
+			return XHR.post(url, data, cb);
+		}
+
+		if (window.LuCI && LuCI.prototype && typeof LuCI.prototype.post === 'function') {
+			return LuCI.prototype.post.call(LuCI.prototype, url, data, cb);
+		}
+
+		if (window.LuCI && typeof LuCI.post === 'function') {
+			return LuCI.post(url, data, cb);
+		}
+
+		var token = '';
+		try {
+			token = (window.LuCI && LuCI.env && LuCI.env.token) || '';
+		} catch (e) {}
+		if (!token) {
+			try {
+				token = (window.XHR && XHR.token) || '';
+			} catch (e) {}
+		}
+
+		var body = [];
+		for (var k in data) {
+			if (Object.prototype.hasOwnProperty.call(data, k)) {
+				body.push(encodeURIComponent(k) + '=' + encodeURIComponent(data[k] == null ? '' : data[k]));
+			}
+		}
+		if (token) {
+			body.push('token=' + encodeURIComponent(token));
+		}
+
+		var xhr = new XMLHttpRequest();
+		xhr.open('POST', url, true);
+		xhr.setRequestHeader('Content-Type', 'application/x-www-form-urlencoded');
+		xhr.onreadystatechange = function() {
+			if (xhr.readyState !== 4) return;
+			var json = null;
+			try { json = JSON.parse(xhr.responseText); } catch (e) {}
+			cb(xhr, json, 0);
+		};
+		xhr.send(body.join('&'));
+	}
+
+	function showResult(text, ok) {
+		var el = document.getElementById('pcdn-cfg-result');
+		el.textContent = text || '';
+		el.className = 'pcdn-result ' + (ok ? 'ok' : 'err');
+		if (!text) el.className = 'pcdn-result';
+	}
+
+	function setState() {
+		var el = document.getElementById('pcdn-cfg-state');
+		el.textContent = dirty ? '（有未保存的修改）' : '';
+		el.className = dirty ? 'pcdn-dirty' : '';
+	}
+
+	function setBusy(busy) {
+		var ids = ['pcdn-cfg-save', 'pcdn-cfg-validate', 'pcdn-cfg-reload', 'pcdn-cfg-reset'];
+		for (var i = 0; i < ids.length; i++) {
+			var el = document.getElementById(ids[i]);
+			if (el) el.disabled = !!busy;
+		}
+	}
+
+	function load() {
+		showResult('', true);
+		XHR.get(U.get, null, function(x, d) {
+			if (!d || !d.ok) {
+				showResult('读取配置文件失败', false);
+				return;
+			}
+
+			editor.value = d.content || '';
+			document.getElementById('pcdn-cfg-path').textContent = d.path || '';
+			dirty = false;
+			setState();
+
+			if (d.error) {
+				showResult('配置文件不存在，且无法生成默认配置：\n' + d.error, false);
+			} else if (d.created) {
+				showResult('已自动创建默认配置文件：' + (d.path || ''), true);
+			} else if (!d.exists) {
+				showResult('配置文件不存在，当前显示由 pcdn-detect 生成的默认配置；保存后创建。', true);
+			} else if (!d.has_binary) {
+				showResult('警告：未找到 pcdn-detect 可执行文件，保存时将无法校验。请先到「下载/更新」安装。', false);
+			}
+		});
+	}
+
+	function luciToken() {
+		var token = '';
+
+		try {
+			token = (window.LuCI && LuCI.env && LuCI.env.token) || '';
+		} catch (e) {}
+		if (!token) {
+			try {
+				token = (window.XHR && XHR.token) || '';
+			} catch (e) {}
+		}
+		if (!token) {
+			var meta = document.querySelector('meta[name="token"]');
+			if (meta) token = meta.getAttribute('content') || '';
+		}
+
+		return token;
+	}
+
+	// 配置全文用 text/plain 原始 body 发送，等价于“上传一个 txt 文件”。
+	// 不走 x-www-form-urlencoded，避免大文本被 LuCI 的 formvalue 限制/解析失败。
+	function xhrPostText(url, text, cb) {
+		var xhr = new XMLHttpRequest();
+
+		xhr.open('POST', url, true);
+		xhr.setRequestHeader('Content-Type', 'text/plain; charset=utf-8');
+		xhr.onreadystatechange = function() {
+			if (xhr.readyState !== 4) return;
+
+			var json = null;
+			try { json = JSON.parse(xhr.responseText); } catch (e) {}
+			cb(xhr, json, 0);
+		};
+		xhr.send(text);
+	}
+
+	// 配置超过 LuCI 单次 body 限制时分片上传：
+	// 每片最多 1000 个字符（UTF-8 最多约 4000 字节），远低于 8 KiB 限制。
+	function saveChunked(content, validateOnly, cb) {
+		var CHUNK = 1000;
+		var offset = 0;
+		var index = 0;
+		var total = content.length;
+
+		function query(extra) {
+			var parts = [];
+			var token = luciToken();
+			if (token) parts.push('token=' + encodeURIComponent(token));
+			if (extra) {
+				for (var k in extra) {
+					if (Object.prototype.hasOwnProperty.call(extra, k)) {
+						parts.push(encodeURIComponent(k) + '=' + encodeURIComponent(extra[k]));
+					}
+				}
+			}
+			return parts.length ? '?' + parts.join('&') : '';
+		}
+
+		function next() {
+			if (offset >= total) {
+				var commitUrl = U.savecommit + query(validateOnly ? { validate: '1' } : null);
+				xhrPostText(commitUrl, null, cb);
+				return;
+			}
+
+			var chunk = content.substr(offset, CHUNK);
+			var chunkUrl = U.savechunk + query({ index: index });
+
+			xhrPostText(chunkUrl, chunk, function(x, d) {
+				if (!d || !d.ok) {
+					cb(x, d);
+					return;
+				}
+
+				offset += chunk.length;
+				index += 1;
+				showResult('正在上传配置 ' + Math.min(offset, total) + '/' + total + ' …', true);
+				next();
+			});
+		}
+
+		next();
+	}
+
+	function submit(validateOnly) {
+		var content = editor.value;
+
+		if (!content || !content.replace(/\s+/g, '')) {
+			showResult('配置内容为空', false);
+			return;
+		}
+
+		setBusy(true);
+		showResult(validateOnly ? '正在校验…' : '正在保存…', true);
+
+		saveChunked(content, validateOnly, function(x, d) {
+			setBusy(false);
+
+			if (!d) {
+				showResult('请求失败，请检查登录状态或页面超时', false);
+				return;
+			}
+
+			var text = d.message || '';
+			if (d.detail) text += '\n\n' + d.detail;
+			showResult(text, !!d.ok);
+
+			if (d.ok && !validateOnly) {
+				dirty = false;
+				setState();
+			}
+		});
+	}
+
+	editor.oninput = function() {
+		if (!dirty) {
+			dirty = true;
+			setState();
+		}
+	};
+
+	editor.onkeydown = function(ev) {
+		// Ctrl/Cmd + S 保存
+		if ((ev.ctrlKey || ev.metaKey) && (ev.key === 's' || ev.key === 'S')) {
+			ev.preventDefault();
+			submit(false);
+			return false;
+		}
+		// Tab 插入缩进而不是切换焦点
+		if (ev.key === 'Tab') {
+			ev.preventDefault();
+			var start = editor.selectionStart;
+			var end = editor.selectionEnd;
+			editor.value = editor.value.substring(0, start) + '\t' + editor.value.substring(end);
+			editor.selectionStart = editor.selectionEnd = start + 1;
+			editor.oninput();
+		}
+	};
+
+	var saveBtn = document.getElementById('pcdn-cfg-save');
+	if (saveBtn && saveBtn.form) {
+		saveBtn.form.onsubmit = function() { return false; };
+	}
+
+	document.getElementById('pcdn-cfg-save').onclick = function() { submit(false); };
+	document.getElementById('pcdn-cfg-validate').onclick = function() { submit(true); };
+
+	document.getElementById('pcdn-cfg-reload').onclick = function() {
+		if (dirty && !confirm('放弃未保存的修改并重新载入？')) return;
+		load();
+	};
+
+	document.getElementById('pcdn-cfg-reset').onclick = function() {
+		if (!confirm('恢复默认会覆盖当前 TOML 配置（保留监听网卡），确定继续？')) return;
+		setBusy(true);
+		xhrPost(U.reset, {}, function(x, d) {
+			setBusy(false);
+			if (!d) {
+				showResult('请求失败', false);
+				return;
+			}
+			var text = d.message || '';
+			if (d.detail) text += '\n\n' + d.detail;
+			showResult(text, !!d.ok);
+			if (d.ok) load();
+		});
+	};
+
+	window.onbeforeunload = function() {
+		if (dirty) return '配置尚未保存，确定离开？';
+	};
+
+	load();
+})();
+//]]></script>

@@ -1,0 +1,478 @@
+<%#
+ luci-app-pcdn-detect 概览页：运行状态、服务控制、HTTP API 实时统计
+-%>
+
+<style>
+	.pcdn-status {
+		display: flex;
+		flex-wrap: wrap;
+		gap: 10px;
+		margin: 0 0 12px 0;
+	}
+	.pcdn-item {
+		flex: 1 1 150px;
+		min-width: 140px;
+		padding: 8px 10px;
+		border: 1px solid #d9d9d9;
+		border-radius: 4px;
+		background: #fafafa;
+	}
+	.pcdn-label {
+		display: block;
+		font-size: 12px;
+		color: #777;
+		margin-bottom: 4px;
+	}
+	.pcdn-value {
+		display: block;
+		font-size: 14px;
+		font-weight: bold;
+		word-break: break-all;
+	}
+	.pcdn-ok { color: #2e7d32; }
+	.pcdn-bad { color: #c62828; }
+	.pcdn-muted { color: #888; font-weight: normal; }
+	.pcdn-actions { margin: 10px 0; }
+	.pcdn-actions .cbi-button { margin-right: 6px; margin-bottom: 4px; }
+	.pcdn-msg {
+		margin: 8px 0 0 0;
+		padding: 6px 8px;
+		border-radius: 3px;
+		display: none;
+		white-space: pre-wrap;
+	}
+	.pcdn-msg-ok { display: block; background: #e8f5e9; color: #2e7d32; border: 1px solid #a5d6a7; }
+	.pcdn-msg-bad { display: block; background: #ffebee; color: #c62828; border: 1px solid #ef9a9a; }
+	.pcdn-stats-cards {
+		display: flex;
+		flex-wrap: wrap;
+		gap: 10px;
+		margin-bottom: 10px;
+	}
+	.pcdn-stat {
+		flex: 1 1 110px;
+		padding: 8px 10px;
+		border: 1px solid #e0e0e0;
+		border-radius: 4px;
+		text-align: center;
+	}
+	.pcdn-stat b { display: block; font-size: 20px; line-height: 1.4; }
+	.pcdn-stat span { font-size: 12px; color: #777; }
+	.pcdn-table { width: 100%; border-collapse: collapse; }
+	.pcdn-table th, .pcdn-table td {
+		padding: 4px 6px;
+		border-bottom: 1px solid #eee;
+		text-align: left;
+		font-size: 13px;
+	}
+	.pcdn-table th { background: #f5f5f5; }
+	.pcdn-table tr.pcdn-alert td { background: #fff3e0; }
+	.pcdn-empty { color: #999; text-align: center !important; }
+</style>
+
+<fieldset class="cbi-section">
+	<legend>运行状态</legend>
+
+	<div class="pcdn-status">
+		<div class="pcdn-item">
+			<span class="pcdn-label">服务状态</span>
+			<span id="pcdn-run" class="pcdn-value pcdn-muted">读取中…</span>
+		</div>
+		<div class="pcdn-item">
+			<span class="pcdn-label">版本</span>
+			<span id="pcdn-version" class="pcdn-value">—</span>
+		</div>
+		<div class="pcdn-item">
+			<span class="pcdn-label">PID / 运行时长</span>
+			<span id="pcdn-pid" class="pcdn-value">—</span>
+			<span id="pcdn-uptime" class="pcdn-value pcdn-muted" style="font-size:12px;">—</span>
+		</div>
+		<div class="pcdn-item">
+			<span class="pcdn-label">监听网卡 / 协议</span>
+			<span id="pcdn-iface" class="pcdn-value">—</span>
+			<span id="pcdn-proto" class="pcdn-value pcdn-muted" style="font-size:12px;">—</span>
+		</div>
+		<div class="pcdn-item">
+			<span class="pcdn-label">日志等级</span>
+			<span id="pcdn-level" class="pcdn-value">—</span>
+		</div>
+		<div class="pcdn-item">
+			<span class="pcdn-label">HTTP API</span>
+			<span id="pcdn-http-state" class="pcdn-value pcdn-muted">—</span>
+			<span id="pcdn-http-listen" class="pcdn-value pcdn-muted" style="font-size:12px;">—</span>
+			<span id="pcdn-http-token" class="pcdn-value pcdn-muted" style="font-size:12px;">—</span>
+		</div>
+		<div class="pcdn-item">
+			<span class="pcdn-label">配置文件</span>
+			<span id="pcdn-cfg" class="pcdn-value" style="font-size:12px;">—</span>
+		</div>
+	</div>
+
+	<div class="pcdn-actions">
+		<button type="button" class="cbi-button cbi-button-apply" id="pcdn-btn-start">启动</button>
+		<button type="button" class="cbi-button cbi-button-reset" id="pcdn-btn-stop">停止</button>
+		<button type="button" class="cbi-button cbi-button-action" id="pcdn-btn-restart">重启</button>
+		<button type="button" class="cbi-button cbi-button-action" id="pcdn-btn-reload">热重载配置</button>
+		<button type="button" class="cbi-button cbi-button-neutral" id="pcdn-btn-refresh">刷新</button>
+		<button type="button" class="cbi-button cbi-button-neutral" id="pcdn-btn-httpcheck">检测 HTTP API</button>
+		<button type="button" class="cbi-button cbi-button-neutral" id="pcdn-btn-httpkey">获取密钥</button>
+		<button type="button" class="cbi-button cbi-button-neutral" id="pcdn-btn-httpcopy" disabled>复制密钥</button>
+	</div>
+
+	<p id="pcdn-warn" class="pcdn-msg"></p>
+	<p id="pcdn-hint" class="pcdn-msg"></p>
+	<p id="pcdn-http-msg" class="pcdn-msg"></p>
+</fieldset>
+
+<fieldset class="cbi-section">
+	<legend>实时统计（来自本机 HTTP API）</legend>
+	<div id="pcdn-stats">
+		<em class="pcdn-muted">读取中…</em>
+	</div>
+</fieldset>
+
+<script type="text/javascript">//<![CDATA[
+(function() {
+	var U = {
+		status: '<%=url("admin", "services", "pcdn-detect", "status")%>',
+		svc: '<%=url("admin", "services", "pcdn-detect", "svc")%>',
+		stats: '<%=url("admin", "services", "pcdn-detect", "stats")%>',
+		httpinfo: '<%=url("admin", "services", "pcdn-detect", "httpinfo")%>',
+		httpcheck: '<%=url("admin", "services", "pcdn-detect", "httpcheck")%>',
+		config: '<%=url("admin", "services", "pcdn-detect", "config")%>',
+		log: '<%=url("admin", "services", "pcdn-detect", "log")%>',
+		update: '<%=url("admin", "services", "pcdn-detect", "update")%>'
+	};
+
+	var httpEnabled = false;
+	var httpToken = '';
+
+	// 兼容不同 LuCI：部分固件的 XHR 没有 post 方法
+	function xhrPost(url, data, cb) {
+		if (window.XHR && typeof XHR.post === 'function') {
+			return XHR.post(url, data, cb);
+		}
+
+		if (window.LuCI && LuCI.prototype && typeof LuCI.prototype.post === 'function') {
+			return LuCI.prototype.post.call(LuCI.prototype, url, data, cb);
+		}
+
+		if (window.LuCI && typeof LuCI.post === 'function') {
+			return LuCI.post(url, data, cb);
+		}
+
+		var token = '';
+		try {
+			token = (window.LuCI && LuCI.env && LuCI.env.token) || '';
+		} catch (e) {}
+		if (!token) {
+			try {
+				token = (window.XHR && XHR.token) || '';
+			} catch (e) {}
+		}
+
+		var body = [];
+		for (var k in data) {
+			if (Object.prototype.hasOwnProperty.call(data, k)) {
+				body.push(encodeURIComponent(k) + '=' + encodeURIComponent(data[k] == null ? '' : data[k]));
+			}
+		}
+		if (token) {
+			body.push('token=' + encodeURIComponent(token));
+		}
+
+		var xhr = new XMLHttpRequest();
+		xhr.open('POST', url, true);
+		xhr.setRequestHeader('Content-Type', 'application/x-www-form-urlencoded');
+		xhr.onreadystatechange = function() {
+			if (xhr.readyState !== 4) return;
+			var json = null;
+			try { json = JSON.parse(xhr.responseText); } catch (e) {}
+			cb(xhr, json, 0);
+		};
+		xhr.send(body.join('&'));
+	}
+
+	function $(id) { return document.getElementById(id); }
+
+	function setText(id, v) {
+		var el = $(id);
+		if (el) el.textContent = (v === null || v === undefined || v === '') ? '—' : v;
+	}
+
+	function setHttpState(text, cls) {
+		var el = $('pcdn-http-state');
+		if (!el) return;
+		el.textContent = text;
+		el.className = 'pcdn-value ' + (cls || 'pcdn-muted');
+	}
+
+	function esc(s) {
+		return String(s === null || s === undefined ? '' : s)
+			.replace(/&/g, '&amp;').replace(/</g, '&lt;')
+			.replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+	}
+
+	function fmtBytes(n) {
+		n = Number(n || 0);
+		var units = ['B', 'KiB', 'MiB', 'GiB', 'TiB'];
+		var i = 0;
+		while (n >= 1024 && i < units.length - 1) { n /= 1024; i++; }
+		return (i === 0 ? Math.floor(n) : n.toFixed(1)) + ' ' + units[i];
+	}
+
+	function showMsg(id, text, good) {
+		var el = $(id);
+		if (!el) return;
+		el.textContent = text || '';
+		el.className = 'pcdn-msg ' + (good ? 'pcdn-msg-ok' : 'pcdn-msg-bad');
+		if (!text) el.className = 'pcdn-msg';
+	}
+
+	function refresh() {
+		XHR.get(U.status, null, function(x, d) {
+			if (!d || !d.ok) {
+				setText('pcdn-run', '状态获取失败');
+				$('pcdn-run').className = 'pcdn-value pcdn-bad';
+				return;
+			}
+
+			var run = $('pcdn-run');
+			run.textContent = d.running ? '运行中' : '已停止';
+			run.className = 'pcdn-value ' + (d.running ? 'pcdn-ok' : 'pcdn-bad');
+
+			setText('pcdn-version', d.version || '未知');
+			setText('pcdn-pid', d.pid || '—');
+			setText('pcdn-uptime', d.uptime_text || '—');
+			setText('pcdn-iface', d.interface || '未配置');
+			setText('pcdn-proto', d.protocol ? ('协议：' + d.protocol) : '');
+			setText('pcdn-level', d.log_level || '默认（warn）');
+
+			httpEnabled = !!d.http_enabled;
+			var httpText = d.http_listen || '—';
+			if (d.http_port) httpText = '端口 ' + d.http_port + ' · ' + httpText;
+			setText('pcdn-http-listen', httpText);
+			$('pcdn-http-listen').title = d.http_url || '';
+			setText('pcdn-http-token', d.http_token_set ? '密钥：已设置' : '密钥：未设置');
+			$('pcdn-btn-httpkey').disabled = false;
+			if (!httpEnabled) {
+				httpToken = '';
+				$('pcdn-btn-httpcopy').disabled = true;
+				setHttpState('未启用', 'pcdn-muted');
+			} else {
+				setHttpState('已启用', 'pcdn-muted');
+			}
+
+			setText('pcdn-cfg', d.config_path || '—');
+			$('pcdn-cfg').title = d.config_path || '';
+
+			$('pcdn-btn-start').disabled = !!d.running;
+			$('pcdn-btn-stop').disabled = !d.running;
+			$('pcdn-btn-restart').disabled = !d.running;
+			$('pcdn-btn-reload').disabled = !d.running;
+
+			if (!d.bin_exists) {
+				showMsg('pcdn-warn', '未找到程序文件：' + (d.bin_path || '') + '，请先到「下载/更新」中安装。', false);
+			} else if (!d.config_exists) {
+				showMsg('pcdn-warn', '配置文件不存在：' + (d.config_path || '') + '，打开配置页或启动服务会自动创建。', false);
+			} else {
+				showMsg('pcdn-warn', '', true);
+			}
+
+			refreshStats();
+		});
+	}
+
+	function refreshStats() {
+		var box = $('pcdn-stats');
+		if (!box) return;
+
+		if (!httpEnabled) {
+			setHttpState('未启用', 'pcdn-muted');
+			box.innerHTML = '<p class="pcdn-muted" style="margin:0;">'
+				+ 'HTTP API 未启用 <a href="' + U.config + '">前往配置</a></p>';
+			return;
+		}
+
+		XHR.get(U.stats, null, function(x, d) {
+			if (!d || !d.available) {
+				setHttpState('异常', 'pcdn-bad');
+				box.innerHTML = '<p class="pcdn-muted" style="margin:0;">'
+					+ esc((d && d.message) || '无法读取实时统计')
+					+ ' <a href="' + U.config + '">前往配置</a></p>';
+				return;
+			}
+
+			setHttpState('正常', 'pcdn-ok');
+			var s = d.status || {};
+			var html = '<div class="pcdn-stats-cards">';
+			html += '<div class="pcdn-stat"><b>' + esc(s.tracked_devices || 0) + '</b><span>跟踪设备</span></div>';
+			html += '<div class="pcdn-stat"><b>' + esc(s.alerts || 0) + '</b><span>累计告警</span></div>';
+			html += '<div class="pcdn-stat"><b>' + esc(s.active_bans || 0) + '</b><span>当前封禁</span></div>';
+			html += '<div class="pcdn-stat"><b>' + esc(s.full_banned || 0) + '</b><span>全端口封禁</span></div>';
+			html += '<div class="pcdn-stat"><b>' + esc(s.upnp_blocked || 0) + '</b><span>UPnP 拦截</span></div>';
+			html += '</div>';
+
+			var devs = (d.devices && d.devices.devices) || [];
+			var rows = [];
+			var total = 0;
+
+			for (var i = 0; i < devs.length; i++) {
+				var ports = devs[i].ports || [];
+				for (var j = 0; j < ports.length; j++) {
+					total++;
+					if (rows.length >= 100) continue;
+					var p = ports[j];
+					rows.push('<tr' + (p.alerting ? ' class="pcdn-alert"' : '') + '>'
+						+ '<td>' + esc(devs[i].mac) + '</td>'
+						+ '<td>' + esc(p.port) + ' / ' + esc(p.proto) + (p.v6 ? ' (IPv6)' : '') + '</td>'
+						+ '<td>' + esc(p.peer_count) + '</td>'
+						+ '<td>' + fmtBytes(p.up_bytes) + '</td>'
+						+ '<td>' + fmtBytes(p.down_bytes) + '</td>'
+						+ '<td>' + (p.alerting ? '<b class="pcdn-bad">告警中</b>' : '正常') + '</td>'
+						+ '</tr>');
+				}
+			}
+
+			if (!rows.length) {
+				rows.push('<tr><td colspan="6" class="pcdn-empty">暂无设备统计（还没有流量，或监听网卡 / 名单配置不正确）</td></tr>');
+			}
+
+			html += '<table class="pcdn-table"><thead><tr>'
+				+ '<th>设备 MAC</th><th>端口 / 协议</th><th>对端数</th>'
+				+ '<th>上行</th><th>下行</th><th>状态</th>'
+				+ '</tr></thead><tbody>' + rows.join('') + '</tbody></table>';
+
+			if (total > 100) {
+				html += '<p class="pcdn-muted" style="margin:6px 0 0;">共 ' + total + ' 条端口记录，仅显示前 100 条。</p>';
+			}
+
+			if (d.devices_error) {
+				html += '<p class="pcdn-muted" style="margin:6px 0 0;">' + esc(d.devices_error) + '</p>';
+			}
+
+			box.innerHTML = html;
+		});
+	}
+
+	function httpCheck() {
+		showMsg('pcdn-http-msg', '正在检测 HTTP API…', true);
+
+		XHR.get(U.httpcheck, null, function(x, d) {
+			if (!d) {
+				showMsg('pcdn-http-msg', '请求失败，请检查登录状态或页面超时', false);
+				return;
+			}
+
+			var msg = d.message || '';
+			if (d.reachable && d.http_status) {
+				msg += '（HTTP ' + d.http_status + '）';
+				if (d.data && d.data.tracked_devices !== undefined) {
+					msg += '\n跟踪设备：' + d.data.tracked_devices + '，告警：' + (d.data.alerts || 0);
+				}
+			}
+			showMsg('pcdn-http-msg', msg, !!d.ok);
+			httpEnabled = !!d.enabled;
+
+			if (!d.enabled) {
+				setHttpState('未启用', 'pcdn-muted');
+			} else if (!d.reachable) {
+				setHttpState('不可达', 'pcdn-bad');
+			} else if (d.ok) {
+				setHttpState('正常', 'pcdn-ok');
+			} else {
+				setHttpState('异常' + (d.http_status ? ' ' + d.http_status : ''), 'pcdn-bad');
+			}
+
+			refreshStats();
+		});
+	}
+
+	function getHttpKey() {
+		XHR.get(U.httpinfo, null, function(x, d) {
+			if (!d || !d.ok) {
+				showMsg('pcdn-http-msg', '获取 HTTP 密钥失败', false);
+				return;
+			}
+
+			httpToken = d.token || '';
+			if (!d.token_set) {
+				showMsg('pcdn-http-msg', '[http] token 未设置（为空）', false);
+				$('pcdn-btn-httpcopy').disabled = true;
+				return;
+			}
+
+			showMsg('pcdn-http-msg', 'HTTP 密钥：' + httpToken, true);
+			$('pcdn-btn-httpcopy').disabled = false;
+		});
+	}
+
+	function copyHttpKey() {
+		if (!httpToken) return;
+
+		function done(ok) {
+			showMsg('pcdn-http-msg', ok ? '密钥已复制' : '复制失败，请手动选择文本', ok);
+		}
+
+		function fallback() {
+			var ta = document.createElement('textarea');
+			ta.value = httpToken;
+			ta.style.position = 'fixed';
+			ta.style.opacity = '0';
+			document.body.appendChild(ta);
+			ta.select();
+			var ok = false;
+			try { ok = document.execCommand('copy'); } catch (e) {}
+			document.body.removeChild(ta);
+			done(ok);
+		}
+
+		if (navigator.clipboard && navigator.clipboard.writeText) {
+			navigator.clipboard.writeText(httpToken).then(function() { done(true); }, fallback);
+		} else {
+			fallback();
+		}
+	}
+
+	function svc(act) {
+		if (act === 'stop' && !confirm('停止 pcdn-detect 会解除当前所有封禁，确定继续？')) {
+			return;
+		}
+
+		showMsg('pcdn-hint', '正在执行：' + act + ' …', true);
+		var btns = document.querySelectorAll('.pcdn-actions button');
+		for (var i = 0; i < btns.length; i++) btns[i].disabled = true;
+
+		xhrPost(U.svc, { action: act }, function(x, d) {
+			if (d && d.ok) {
+				showMsg('pcdn-hint', d.message || '操作完成', true);
+			} else {
+				showMsg('pcdn-hint', (d && d.message) || '操作失败', false);
+			}
+			setTimeout(refresh, 1200);
+			setTimeout(function() {
+				var btns2 = document.querySelectorAll('.pcdn-actions button');
+				for (var k = 0; k < btns2.length; k++) btns2[k].disabled = false;
+				refresh();
+			}, 2500);
+		});
+	}
+
+	function bind(id, act) {
+		var el = $(id);
+		if (el) el.onclick = function() { svc(act); };
+	}
+
+	bind('pcdn-btn-start', 'start');
+	bind('pcdn-btn-stop', 'stop');
+	bind('pcdn-btn-restart', 'restart');
+	bind('pcdn-btn-reload', 'reload');
+	$('pcdn-btn-refresh').onclick = function() { refresh(); };
+	$('pcdn-btn-httpcheck').onclick = httpCheck;
+	$('pcdn-btn-httpkey').onclick = getHttpKey;
+	$('pcdn-btn-httpcopy').onclick = copyHttpKey;
+
+	refresh();
+	setInterval(refresh, 5000);
+})();
+//]]></script>

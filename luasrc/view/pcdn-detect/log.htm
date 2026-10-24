@@ -1,0 +1,206 @@
+<%#
+ luci-app-pcdn-detect 日志页
+-%>
+
+<style>
+	.pcdn-log-bar {
+		display: flex;
+		flex-wrap: wrap;
+		align-items: center;
+		gap: 8px;
+		margin-bottom: 8px;
+	}
+	.pcdn-log-bar label { font-size: 13px; color: #555; }
+	.pcdn-log-bar .cbi-input-text { width: 180px; }
+	.pcdn-log-bar .cbi-input-select { width: auto; }
+	.pcdn-log {
+		margin: 0;
+		padding: 8px 10px;
+		min-height: 320px;
+		max-height: 65vh;
+		overflow: auto;
+		background: #fbfbfb;
+		border: 1px solid #ddd;
+		border-radius: 4px;
+		font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+		font-size: 12px;
+		line-height: 1.55;
+		white-space: pre;
+		tab-size: 4;
+	}
+	.pcdn-log-info { margin: 6px 0 0; font-size: 12px; color: #888; }
+	.pcdn-log-info.pcdn-ok { color: #2e7d32; }
+	.pcdn-log-info.pcdn-bad { color: #c62828; }
+	.pcdn-actions .cbi-button { margin-right: 6px; margin-bottom: 4px; }
+</style>
+
+<div class="cbi-section">
+	<div class="pcdn-log-bar">
+		<label for="pcdn-log-lines">显示行数</label>
+		<select class="cbi-input-select" id="pcdn-log-lines">
+			<option value="100">100</option>
+			<option value="200" selected="selected">200</option>
+			<option value="500">500</option>
+			<option value="1000">1000</option>
+			<option value="2000">2000</option>
+		</select>
+
+		<label for="pcdn-log-level">等级</label>
+		<select class="cbi-input-select" id="pcdn-log-level">
+			<option value="all">全部</option>
+			<option value="debug">debug</option>
+			<option value="info">info</option>
+			<option value="warn">warn</option>
+			<option value="error">error</option>
+		</select>
+
+		<label for="pcdn-log-keyword">关键词</label>
+		<input class="cbi-input-text" type="text" id="pcdn-log-keyword" placeholder="MAC / IP / 端口 / PCDN" />
+
+		<label><input type="checkbox" id="pcdn-log-auto" checked="checked" /> 自动刷新</label>
+		<select class="cbi-input-select" id="pcdn-log-interval">
+			<option value="3000">3 秒</option>
+			<option value="5000" selected="selected">5 秒</option>
+			<option value="10000">10 秒</option>
+		</select>
+	</div>
+
+	<div class="pcdn-actions">
+		<button type="button" class="cbi-button cbi-button-action" id="pcdn-log-refresh">刷新</button>
+		<button type="button" class="cbi-button cbi-button-neutral" id="pcdn-log-pause">暂停</button>
+		<button type="button" class="cbi-button cbi-button-neutral" id="pcdn-log-clear">清空显示</button>
+		<button type="button" class="cbi-button cbi-button-neutral" id="pcdn-log-download">下载日志</button>
+		<button type="button" class="cbi-button cbi-button-neutral" id="pcdn-log-alert">只看 PCDN 告警</button>
+	</div>
+
+	<pre id="pcdn-log" class="pcdn-log">加载中…</pre>
+
+	<p class="pcdn-log-info" id="pcdn-log-info">
+		日志来自系统日志（logread）中标签为 pcdn-detect 的记录，可查看范围取决于系统日志缓冲区大小。
+	</p>
+</div>
+
+<script type="text/javascript">//<![CDATA[
+(function() {
+	var U = '<%=url("admin", "services", "pcdn-detect", "getlog")%>';
+
+	var box = document.getElementById('pcdn-log');
+	var info = document.getElementById('pcdn-log-info');
+	var paused = false;
+	var timer = null;
+	var lastText = '';
+	var lastUpdate = null;
+
+	function $(id) { return document.getElementById(id); }
+
+	function setInfo(text, good) {
+		info.textContent = text;
+		info.className = 'pcdn-log-info' + (good === true ? ' pcdn-ok' : (good === false ? ' pcdn-bad' : ''));
+	}
+
+	function atBottom(el) {
+		return el.scrollTop + el.clientHeight >= el.scrollHeight - 16;
+	}
+
+	function refresh() {
+		var follow = atBottom(box);
+		var params = 'lines=' + encodeURIComponent($('pcdn-log-lines').value)
+			+ '&level=' + encodeURIComponent($('pcdn-log-level').value)
+			+ '&keyword=' + encodeURIComponent($('pcdn-log-keyword').value || '');
+
+		XHR.get(U + '?' + params, null, function(x, data) {
+			if (!x || x.status !== 200) {
+				setInfo('读取日志失败（HTTP ' + (x ? x.status : '?') + '）', false);
+				return;
+			}
+
+			var text = x.responseText || '';
+			lastText = text;
+			lastUpdate = new Date();
+
+			if (text.replace(/\s+/g, '') === '') {
+				box.textContent = '暂无匹配日志。\n\n可能原因：服务尚未启动、日志等级为 warn/error 没有业务日志、或监听网卡尚未产生流量。';
+			} else {
+				box.textContent = text;
+			}
+
+			if (follow) {
+				box.scrollTop = box.scrollHeight;
+			}
+
+			var size = text.length;
+			setInfo('最后刷新：' + lastUpdate.toLocaleTimeString()
+				+ '　共 ' + (text === '' ? 0 : text.replace(/\n$/, '').split('\n').length) + ' 行'
+				+ '　' + (paused ? '已暂停自动刷新' : '自动刷新中'), true);
+
+			if (size === 0) {
+				setInfo('最后刷新：' + lastUpdate.toLocaleTimeString() + '　暂无日志', true);
+			}
+		});
+	}
+
+	function restartTimer() {
+		if (timer) {
+			clearInterval(timer);
+			timer = null;
+		}
+		if (!paused && $('pcdn-log-auto').checked) {
+			timer = setInterval(refresh, parseInt($('pcdn-log-interval').value, 10) || 5000);
+		}
+	}
+
+	var refreshBtn = $('pcdn-log-refresh');
+	if (refreshBtn && refreshBtn.form) {
+		refreshBtn.form.onsubmit = function() { return false; };
+	}
+
+	$('pcdn-log-refresh').onclick = refresh;
+	$('pcdn-log-auto').onchange = restartTimer;
+	$('pcdn-log-interval').onchange = restartTimer;
+
+	$('pcdn-log-pause').onclick = function() {
+		paused = !paused;
+		this.textContent = paused ? '继续' : '暂停';
+		restartTimer();
+		refresh();
+	};
+
+	$('pcdn-log-clear').onclick = function() {
+		box.textContent = '';
+		lastText = '';
+	};
+
+	$('pcdn-log-download').onclick = function() {
+		var text = lastText || '';
+		if (!text.replace(/\s+/g, '')) {
+			alert('当前没有可下载的日志');
+			return;
+		}
+		var d = new Date();
+		var p = function(n) { return n < 10 ? '0' + n : n; };
+		var name = 'pcdn-detect-log-' + d.getFullYear() + p(d.getMonth() + 1) + p(d.getDate())
+			+ '-' + p(d.getHours()) + p(d.getMinutes()) + p(d.getSeconds()) + '.log';
+
+		var blob = new Blob([text], { type: 'text/plain;charset=utf-8' });
+		var a = document.createElement('a');
+		a.download = name;
+		a.href = URL.createObjectURL(blob);
+		document.body.appendChild(a);
+		a.click();
+		document.body.removeChild(a);
+		URL.revokeObjectURL(a.href);
+	};
+
+	$('pcdn-log-alert').onclick = function() {
+		$('pcdn-log-keyword').value = 'PCDN';
+		refresh();
+	};
+
+	$('pcdn-log-keyword').onkeydown = function(ev) {
+		if (ev.key === 'Enter') refresh();
+	};
+
+	refresh();
+	restartTimer();
+})();
+//]]></script>

@@ -1,0 +1,86 @@
+msgid ""
+msgstr ""
+"Project-Id-Version: luci-app-pcdn-detect 1.0.0\n"
+"PO-Revision-Date: 2026-10-24 00:00+0800\n"
+"Last-Translator: Womsxd <https://github.com/Womsxd>\n"
+"Language-Team: Chinese (Simplified)\n"
+"Language: zh_CN\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"Plural-Forms: nplurals=1; plural=0;\n"
+
+msgid "PCDN 检测"
+msgstr "PCDN 检测"
+
+msgid "概览"
+msgstr "概览"
+
+msgid "配置编辑"
+msgstr "配置编辑"
+
+msgid "日志"
+msgstr "日志"
+
+msgid "下载/更新"
+msgstr "下载/更新"
+
+msgid "在 LAN 侧网卡抓包，按「设备 MAC + 本地端口」统计对端公网 IP 数量；超过阈值即判定疑似 PCDN，并可选自动对接防火墙封禁。"
+msgstr "在 LAN 侧网卡抓包，按「设备 MAC + 本地端口」统计对端公网 IP 数量；超过阈值即判定疑似 PCDN，并可选自动对接防火墙封禁。"
+
+msgid "服务设置"
+msgstr "服务设置"
+
+msgid "开机自启"
+msgstr "开机自启"
+
+msgid "随系统启动。概览页的「启动 / 停止」按钮会同步修改此开关；取消勾选不会立即停止正在运行的服务。"
+msgstr "随系统启动。概览页的「启动 / 停止」按钮会同步修改此开关；取消勾选不会立即停止正在运行的服务。"
+
+msgid "配置文件路径"
+msgstr "配置文件路径"
+
+msgid "TOML 配置文件的绝对路径。可在「配置编辑」中在线修改。"
+msgstr "TOML 配置文件的绝对路径。可在「配置编辑」中在线修改。"
+
+msgid "程序路径"
+msgstr "程序路径"
+
+msgid "pcdn-detect 可执行文件路径，可在「下载/更新」中自动安装。"
+msgstr "pcdn-detect 可执行文件路径，可在「下载/更新」中自动安装。"
+
+msgid "附加启动参数"
+msgstr "附加启动参数"
+
+msgid "可选，按空格拆分后追加到启动命令。命令行参数优先于 TOML 配置文件。"
+msgstr "可选，按空格拆分后追加到启动命令。命令行参数优先于 TOML 配置文件。"
+
+msgid "完整 TOML 文本编辑，等同于直接编辑一个 txt 文件；保存时把全文发回后端，由 pcdn-detect -T 校验，校验失败不会写入；运行中通过 SIGHUP 热重载。"
+msgstr "完整 TOML 文本编辑，等同于直接编辑一个 txt 文件；保存时把全文发回后端，由 pcdn-detect -T 校验，校验失败不会写入；运行中通过 SIGHUP 热重载。"
+
+msgid "运行日志"
+msgstr "运行日志"
+
+msgid "查看 pcdn-detect 的运行日志。日志来自系统日志（logread），按 tag 精确筛选。"
+msgstr "查看 pcdn-detect 的运行日志。日志来自系统日志（logread），按 tag 精确筛选。"
+
+msgid "下载 / 更新"
+msgstr "下载 / 更新"
+
+msgid "从 GitHub Release 或自定义地址下载 pcdn-detect 二进制并安装。下载后会用 -v 自检，失败自动回滚到旧版本。"
+msgstr "从 GitHub Release 或自定义地址下载 pcdn-detect 二进制并安装。下载后会用 -v 自检，失败自动回滚到旧版本。"
+
+msgid "下载源"
+msgstr "下载源"
+
+msgid "GitHub 仓库"
+msgstr "GitHub 仓库"
+
+msgid "格式：用户名/仓库名。用于推导 Release 下载地址与版本检查接口。"
+msgstr "格式：用户名/仓库名。用于推导 Release 下载地址与版本检查接口。"
+
+msgid "下载地址前缀"
+msgstr "下载地址前缀"
+
+msgid "留空使用 GitHub Release 地址；使用镜像时可改为镜像的 releases/latest/download 前缀，或直接在上方填写完整地址。"
+msgstr "留空使用 GitHub Release 地址；使用镜像时可改为镜像的 releases/latest/download 前缀，或直接在上方填写完整地址。"
