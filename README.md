@@ -150,10 +150,72 @@ ssh root@192.168.1.1 'chmod +x /usr/bin/pcdn-detect && /usr/bin/pcdn-detect -v'
 - 产物复制到 `dist/openwrt-<version>/`，并生成 `SHA256SUMS`；
 - 构建目标固定为 `x86/64`；LuCI 包是 noarch（`PKGARCH:=all`），产物可安装到任意架构；
 - `--sdk` 首次会下载约 100 MB 官方 SDK，仍建议 10 GiB 以上空闲磁盘；完整源码模式建议 20 GiB 以上；
-- 需要 `git make gcc g++ tar gzip wget perl`（SDK 模式另需 `curl` 与 `xz`/`zstd`；`tar` 受环境限制时建议安装 `7z`）；
+- 编译依赖见下方「编译依赖」小节；SDK 模式也需要 OpenWrt 的 host 前置包，不只是 `git` / `make`；
 - 更新 feeds 需要 Perl 的 `FindBin` 模块：Fedora 若提示 `Can't locate FindBin.pm`，执行 `dnf install perl-FindBin`；Debian/Ubuntu 安装 `perl`；
 - `24.10` 通过 `CONFIG_USE_APK=y` 生成 `.apk`，其余版本生成 `.ipk`；
 - 脚本只编译 LuCI 前端包；`pcdn-detect` 二进制由「下载/更新」安装，或按上游项目单独编译。
+
+### 编译依赖
+
+SDK 模式虽然跳过 `tools` / `toolchain`，但仍会执行 OpenWrt 的 `prereq-build` 检查，并编译 `po2lmo` 等 host 工具，所以下面这些包仍要装。
+
+**Fedora**
+
+```bash
+sudo dnf install -y \
+  git make gcc gcc-c++ tar gzip wget curl xz zstd 7zip \
+  rsync patch unzip bzip2 diffutils findutils gawk grep sed coreutils \
+  file which bash util-linux \
+  ncurses-devel glibc-devel gettext-devel python3 \
+  perl perl-FindBin perl-Time-Piece perl-JSON-PP perl-Thread-Queue perl-Data-Dumper \
+  cmake ninja-build
+```
+
+**Debian / Ubuntu**
+
+```bash
+sudo apt update
+sudo apt install -y \
+  build-essential git make gcc g++ tar gzip wget curl xz-utils zstd \
+  rsync patch unzip bzip2 diffutils findutils gawk grep sed coreutils \
+  file debianutils util-linux bash \
+  libncurses-dev libc6-dev gettext python3 perl \
+  cmake ninja-build
+
+# 新版发行版有 7zip；旧版用 p7zip-full
+sudo apt install -y 7zip || sudo apt install -y p7zip-full
+```
+
+**Arch Linux**
+
+```bash
+sudo pacman -S --needed base-devel git rsync patch unzip bzip2 xz zstd 7zip \
+  ncurses gettext python perl wget curl cmake ninja \
+  file which bash util-linux
+```
+
+完整源码模式还要额外安装：
+
+```bash
+# Fedora
+sudo dnf install -y autoconf automake libtool bison flex \
+  zlib-devel openssl-devel elfutils-libelf-devel swig ccache bc cpio texinfo
+
+# Debian / Ubuntu
+sudo apt install -y autoconf automake libtool bison flex \
+  zlib1g-dev libssl-dev libelf-dev swig ccache bc cpio texinfo
+```
+
+说明：
+
+- `ncurses-devel` / `libncurses-dev`、GNU `patch`、Perl 的 `FindBin` / `Time::Piece` / `JSON::PP` / `Thread::Queue` 在 SDK 模式下也会用到；
+- `tar` 在受限容器里报 `Function not implemented` 时，需要安装 `7z` / `7zz` / `7za`；
+- 部分发行版把 Python 工具拆在 `python3-distutils` / `python3-setuptools`，缺少时补装；
+- 让 OpenWrt 自己检查缺什么：
+  ```bash
+  make -C build/sdk-<版本>/<sdk目录> prereq
+  ```
+- 脚本顶部的命令检查只是快速失败；完整前置检查以 OpenWrt 的 `prereq-build` 为准。
 
 ### SDK 镜像站
 
