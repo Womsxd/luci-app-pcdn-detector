@@ -68,6 +68,63 @@
 	.pcdn-table th { background: #f5f5f5; }
 	.pcdn-table tr.pcdn-alert td { background: #fff3e0; }
 	.pcdn-empty { color: #999; text-align: center !important; }
+	.pcdn-detail {
+		margin-top: 12px;
+		padding: 10px;
+		border: 1px solid #e0e0e0;
+		border-radius: 4px;
+		background: #fcfcfc;
+	}
+	.pcdn-detail-head {
+		display: flex;
+		flex-wrap: wrap;
+		gap: 8px;
+		align-items: center;
+		margin-bottom: 8px;
+	}
+	.pcdn-detail-head h4 { margin: 0; font-size: 14px; }
+	.pcdn-detail-filters {
+		display: flex;
+		flex-wrap: wrap;
+		gap: 12px;
+		align-items: center;
+		margin-bottom: 8px;
+		font-size: 13px;
+	}
+	.pcdn-detail-filters select { font-size: 13px; padding: 1px 4px; }
+	.pcdn-badge {
+		display: inline-block;
+		padding: 0 6px;
+		border-radius: 9px;
+		font-size: 11px;
+		line-height: 18px;
+		white-space: nowrap;
+	}
+	.pcdn-badge-ban { background: #ffebee; color: #c62828; }
+	.pcdn-badge-alert { background: #fff3e0; color: #e65100; }
+	.pcdn-badge-ok { background: #e8f5e9; color: #2e7d32; }
+	.pcdn-pager {
+		display: flex;
+		flex-wrap: wrap;
+		gap: 8px;
+		align-items: center;
+		margin-top: 8px;
+		font-size: 13px;
+	}
+	.pcdn-rowbtn { padding: 1px 6px; font-size: 12px; line-height: 20px; }
+	.pcdn-peers {
+		margin-top: 10px;
+		padding: 8px 10px;
+		border: 1px dashed #cfcfcf;
+		border-radius: 4px;
+		background: #fafafa;
+	}
+	.pcdn-peers-list {
+		font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+		font-size: 12px;
+		line-height: 1.6;
+		word-break: break-all;
+	}
 </style>
 
 <fieldset class="cbi-section">
@@ -129,6 +186,7 @@
 	<div id="pcdn-stats">
 		<em class="pcdn-muted">读取中…</em>
 	</div>
+	<div id="pcdn-device"></div>
 </fieldset>
 
 <script type="text/javascript">//<![CDATA[
@@ -137,6 +195,8 @@
 		status: '<%=url("admin", "services", "pcdn-detector", "status")%>',
 		svc: '<%=url("admin", "services", "pcdn-detector", "svc")%>',
 		stats: '<%=url("admin", "services", "pcdn-detector", "stats")%>',
+		device: '<%=url("admin", "services", "pcdn-detector", "device")%>',
+		peers: '<%=url("admin", "services", "pcdn-detector", "peers")%>',
 		httpinfo: '<%=url("admin", "services", "pcdn-detector", "httpinfo")%>',
 		httpcheck: '<%=url("admin", "services", "pcdn-detector", "httpcheck")%>',
 		config: '<%=url("admin", "services", "pcdn-detector", "config")%>',
@@ -146,6 +206,10 @@
 
 	var httpEnabled = false;
 	var httpToken = '';
+
+	// 端口明细 / 对端 IP 均按需读取，不随汇总接口全量下发
+	var detail = null;    // { mac, family, state, limit, page }
+	var peerView = null;  // { mac, port, proto, v6, page, limit }
 
 	// 兼容不同 LuCI：部分固件的 XHR 没有 post 方法
 	function xhrPost(url, data, cb) {
@@ -221,6 +285,25 @@
 		return (i === 0 ? Math.floor(n) : n.toFixed(1)) + ' ' + units[i];
 	}
 
+	function opt(value, label, current) {
+		return '<option value="' + esc(value) + '"'
+			+ (String(current) === String(value) ? ' selected' : '') + '>'
+			+ esc(label) + '</option>';
+	}
+
+	// 地址族汇总：端口条目数、其中封禁数，并按 udp / tcp 拆分
+	// （上游 /api/v1/devices 与 /api/v1/device 使用同一口径）
+	function familyText(f) {
+		f = f || {};
+		var ports = Number(f.ports || 0);
+		var banned = Number(f.banned || 0);
+		var udp = f.udp || {};
+		var tcp = f.tcp || {};
+		return ports + ' 端口' + (banned > 0 ? ('（封禁 ' + banned + '）') : '')
+			+ ' · UDP ' + Number(udp.ports || 0) + '/' + Number(udp.banned || 0)
+			+ ' · TCP ' + Number(tcp.ports || 0) + '/' + Number(tcp.banned || 0);
+	}
+
 	function showMsg(id, text, good) {
 		var el = $(id);
 		if (!el) return;
@@ -291,6 +374,7 @@
 			setHttpState('未启用', 'pcdn-muted');
 			box.innerHTML = '<p class="pcdn-muted" style="margin:0;">'
 				+ 'HTTP API 未启用 <a href="' + U.config + '">前往配置</a></p>';
+			if (detail) closeDetail();
 			return;
 		}
 
@@ -305,6 +389,9 @@
 
 			setHttpState('正常', 'pcdn-ok');
 			var s = d.status || {};
+			var dv = d.devices || {};
+			var devs = dv.devices || [];
+
 			var html = '<div class="pcdn-stats-cards">';
 			html += '<div class="pcdn-stat"><b>' + esc(s.tracked_devices || 0) + '</b><span>跟踪设备</span></div>';
 			html += '<div class="pcdn-stat"><b>' + esc(s.alerts || 0) + '</b><span>累计告警</span></div>';
@@ -313,46 +400,362 @@
 			html += '<div class="pcdn-stat"><b>' + esc(s.upnp_blocked || 0) + '</b><span>UPnP 拦截</span></div>';
 			html += '</div>';
 
-			var devs = (d.devices && d.devices.devices) || [];
-			var rows = [];
-			var total = 0;
+			// 上游 /api/v1/devices 只返回设备级汇总；端口明细按需调用 /api/v1/device
+			var evictions = Number(dv.port_evictions || 0);
+			var drops = Number(dv.port_drops || 0);
+			if (evictions > 0 || drops > 0) {
+				html += '<p class="pcdn-muted" style="margin:0 0 8px;">'
+					+ '[memory] max_ports 已生效：提前过期端口 ' + evictions + ' 次，丢弃新端口报文 ' + drops + ' 次。</p>';
+			}
 
+			var rows = [];
 			for (var i = 0; i < devs.length; i++) {
-				var ports = devs[i].ports || [];
-				for (var j = 0; j < ports.length; j++) {
-					total++;
-					if (rows.length >= 100) continue;
-					var p = ports[j];
-					rows.push('<tr' + (p.alerting ? ' class="pcdn-alert"' : '') + '>'
-						+ '<td>' + esc(devs[i].mac) + '</td>'
-						+ '<td>' + esc(p.port) + ' / ' + esc(p.proto) + (p.v6 ? ' (IPv6)' : '') + '</td>'
-						+ '<td>' + esc(p.peer_count) + '</td>'
-						+ '<td>' + fmtBytes(p.up_bytes) + '</td>'
-						+ '<td>' + fmtBytes(p.down_bytes) + '</td>'
-						+ '<td>' + (p.alerting ? '<b class="pcdn-bad">告警中</b>' : '正常') + '</td>'
-						+ '</tr>');
-				}
+				var mac = devs[i].mac || '';
+				rows.push('<tr>'
+					+ '<td>' + esc(mac) + '</td>'
+					+ '<td>' + esc(familyText(devs[i].ipv4)) + '</td>'
+					+ '<td>' + esc(familyText(devs[i].ipv6)) + '</td>'
+					+ '<td><button type="button" class="cbi-button cbi-button-neutral pcdn-rowbtn" data-mac="'
+						+ esc(mac) + '">端口明细</button></td>'
+					+ '</tr>');
 			}
 
 			if (!rows.length) {
-				rows.push('<tr><td colspan="6" class="pcdn-empty">暂无设备统计（还没有流量，或监听网卡 / 名单配置不正确）</td></tr>');
+				rows.push('<tr><td colspan="4" class="pcdn-empty">暂无设备统计（还没有流量，或监听网卡 / 名单配置不正确）</td></tr>');
 			}
 
 			html += '<table class="pcdn-table"><thead><tr>'
-				+ '<th>设备 MAC</th><th>端口 / 协议</th><th>对端数</th>'
-				+ '<th>上行</th><th>下行</th><th>状态</th>'
+				+ '<th>设备 MAC</th><th>IPv4 端口 / 封禁</th><th>IPv6 端口 / 封禁</th><th>操作</th>'
 				+ '</tr></thead><tbody>' + rows.join('') + '</tbody></table>';
-
-			if (total > 100) {
-				html += '<p class="pcdn-muted" style="margin:6px 0 0;">共 ' + total + ' 条端口记录，仅显示前 100 条。</p>';
-			}
 
 			if (d.devices_error) {
 				html += '<p class="pcdn-muted" style="margin:6px 0 0;">' + esc(d.devices_error) + '</p>';
+			} else {
+				html += '<p class="pcdn-muted" style="margin:6px 0 0;">'
+					+ '汇总接口不包含端口明细；点击「端口明细」按需读取 /api/v1/device（对端 IP 走 /api/v1/peers）。</p>';
 			}
 
 			box.innerHTML = html;
+
+			var btns = box.querySelectorAll('button[data-mac]');
+			for (var k = 0; k < btns.length; k++) {
+				btns[k].onclick = function() {
+					openDetail(this.getAttribute('data-mac'));
+				};
+			}
 		});
+	}
+
+	function openDetail(mac) {
+		detail = { mac: mac, family: 'all', state: 'all', limit: 100, page: 1 };
+		peerView = null;
+		loadDetail();
+	}
+
+	function closeDetail() {
+		detail = null;
+		peerView = null;
+		var box = $('pcdn-device');
+		if (box) box.innerHTML = '';
+	}
+
+	function bindDetailHead() {
+		var close = $('pcdn-dev-close');
+		if (close) close.onclick = closeDetail;
+
+		var refresh = $('pcdn-dev-refresh');
+		if (refresh) refresh.onclick = function() { loadDetail(); };
+	}
+
+	function loadDetail() {
+		var box = $('pcdn-device');
+		if (!box || !detail) return;
+
+		box.innerHTML = '<p class="pcdn-muted" style="margin:10px 0 0;">正在读取 '
+			+ esc(detail.mac) + ' 的端口明细…</p>';
+
+		// 用 data 对象传参：部分 LuCI 的 XHR.get 会无条件在 URL 后追加 '?'，
+		// 自己拼 query 会多出一个 '?' 并污染最后一个参数。
+		XHR.get(U.device, {
+			mac: detail.mac,
+			family: detail.family,
+			state: detail.state,
+			limit: detail.limit,
+			page: detail.page
+		}, function(x, d) {
+			if (!detail) return;
+
+			if (!d || !d.ok) {
+				box.innerHTML = '<div class="pcdn-detail">'
+					+ '<div class="pcdn-detail-head"><h4>端口明细：' + esc(detail.mac) + '</h4>'
+					+ '<span style="flex:1;"></span>'
+					+ '<button type="button" class="cbi-button cbi-button-neutral pcdn-rowbtn" id="pcdn-dev-close">关闭</button>'
+					+ '</div>'
+					+ '<p class="pcdn-msg pcdn-msg-bad" style="display:block;">'
+					+ esc((d && d.message) || '无法读取端口明细') + '</p>'
+					+ '</div>';
+				bindDetailHead();
+				return;
+			}
+
+			renderDetail(d.data);
+		});
+	}
+
+	function renderDetail(v) {
+		v = v || {};
+
+		var box = $('pcdn-device');
+		if (!box || !detail) return;
+
+		var ports = v.ports || [];
+		var html = '<div class="pcdn-detail">';
+
+		html += '<div class="pcdn-detail-head">'
+			+ '<h4>端口明细：' + esc(v.mac || detail.mac) + '</h4>'
+			+ (v.full_banned ? '<span class="pcdn-badge pcdn-badge-ban">全端口封禁</span>' : '')
+			+ '<span style="flex:1;"></span>'
+			+ '<button type="button" class="cbi-button cbi-button-neutral pcdn-rowbtn" id="pcdn-dev-refresh">刷新</button>'
+			+ '<button type="button" class="cbi-button cbi-button-neutral pcdn-rowbtn" id="pcdn-dev-close">关闭</button>'
+			+ '</div>';
+
+		html += '<div class="pcdn-detail-filters">'
+			+ '<label>地址族 <select id="pcdn-dev-family" class="cbi-input-select">'
+			+ opt('all', '全部', detail.family)
+			+ opt('v4', 'IPv4', detail.family)
+			+ opt('v6', 'IPv6', detail.family)
+			+ '</select></label>'
+			+ '<label>状态 <select id="pcdn-dev-state" class="cbi-input-select">'
+			+ opt('all', '全部', detail.state)
+			+ opt('banned', '已封禁', detail.state)
+			+ opt('unbanned', '未封禁', detail.state)
+			+ '</select></label>'
+			+ '<label>每页 <select id="pcdn-dev-limit" class="cbi-input-select">'
+			+ opt(50, '50', detail.limit)
+			+ opt(100, '100', detail.limit)
+			+ opt(200, '200', detail.limit)
+			+ opt(500, '500', detail.limit)
+			+ '</select></label>'
+			+ '</div>';
+
+		html += '<p class="pcdn-muted" style="margin:0 0 8px;">'
+			+ 'IPv4：' + esc(familyText(v.ipv4)) + '<br>'
+			+ 'IPv6：' + esc(familyText(v.ipv6))
+			+ '</p>';
+
+		var rows = [];
+		for (var i = 0; i < ports.length; i++) {
+			var p = ports[i];
+			rows.push('<tr' + (p.alerting ? ' class="pcdn-alert"' : '') + '>'
+				+ '<td>' + esc(p.port) + ' / ' + esc(p.proto) + '</td>'
+				+ '<td>' + (p.v6 ? 'IPv6' : 'IPv4') + '</td>'
+				+ '<td>' + esc(p.peer_count) + '</td>'
+				+ '<td>' + fmtBytes(p.up_bytes) + '</td>'
+				+ '<td>' + fmtBytes(p.down_bytes) + '</td>'
+				+ '<td>'
+				+ (p.alerting ? '<span class="pcdn-badge pcdn-badge-alert">告警中</span> ' : '')
+				+ (p.banned ? '<span class="pcdn-badge pcdn-badge-ban">已封禁</span>' : '')
+				+ ((!p.alerting && !p.banned) ? '<span class="pcdn-badge pcdn-badge-ok">正常</span>' : '')
+				+ '</td>'
+				+ '<td><button type="button" class="cbi-button cbi-button-neutral pcdn-rowbtn pcdn-peer-btn"'
+					+ ' data-port="' + esc(p.port) + '" data-proto="' + esc(p.proto) + '"'
+					+ ' data-v6="' + (p.v6 ? '1' : '0') + '">'
+					+ '对端 ' + Number(p.peer_count || 0) + '</button></td>'
+				+ '</tr>');
+		}
+
+		if (!rows.length) {
+			rows.push('<tr><td colspan="7" class="pcdn-empty">没有符合筛选条件的端口</td></tr>');
+		}
+
+		html += '<table class="pcdn-table"><thead><tr>'
+			+ '<th>端口 / 协议</th><th>地址族</th><th>对端数</th>'
+			+ '<th>上行</th><th>下行</th><th>状态</th><th>对端 IP</th>'
+			+ '</tr></thead><tbody>' + rows.join('') + '</tbody></table>';
+
+		var matched = Number(v.matched || 0);
+		var limit = Number(v.limit || detail.limit || 100);
+		var page = Number(v.page || detail.page || 1);
+		var pages = Math.max(1, Math.ceil(matched / limit));
+
+		detail.page = page;
+		detail.limit = limit;
+
+		html += '<div class="pcdn-pager">'
+			+ '<button type="button" class="cbi-button cbi-button-neutral pcdn-rowbtn" id="pcdn-dev-prev"'
+				+ (page <= 1 ? ' disabled' : '') + '>上一页</button>'
+			+ '<span>第 ' + page + ' / ' + pages + ' 页，共 ' + matched + ' 条</span>'
+			+ '<button type="button" class="cbi-button cbi-button-neutral pcdn-rowbtn" id="pcdn-dev-next"'
+				+ (v.truncated ? '' : ' disabled') + '>下一页</button>'
+			+ '</div>';
+
+		html += '<div id="pcdn-peer-box"></div>';
+		html += '</div>';
+
+		box.innerHTML = html;
+		bindDetailHead();
+
+		var fam = $('pcdn-dev-family');
+		if (fam) {
+			fam.onchange = function() {
+				detail.family = this.value;
+				detail.page = 1;
+				peerView = null;
+				loadDetail();
+			};
+		}
+
+		var st = $('pcdn-dev-state');
+		if (st) {
+			st.onchange = function() {
+				detail.state = this.value;
+				detail.page = 1;
+				peerView = null;
+				loadDetail();
+			};
+		}
+
+		var lim = $('pcdn-dev-limit');
+		if (lim) {
+			lim.onchange = function() {
+				detail.limit = Number(this.value) || 100;
+				detail.page = 1;
+				peerView = null;
+				loadDetail();
+			};
+		}
+
+		var prev = $('pcdn-dev-prev');
+		if (prev) {
+			prev.onclick = function() {
+				if (detail.page <= 1) return;
+				detail.page--;
+				peerView = null;
+				loadDetail();
+			};
+		}
+
+		var next = $('pcdn-dev-next');
+		if (next) {
+			next.onclick = function() {
+				detail.page++;
+				peerView = null;
+				loadDetail();
+			};
+		}
+
+		var pbtns = box.querySelectorAll('button.pcdn-peer-btn');
+		for (var j = 0; j < pbtns.length; j++) {
+			pbtns[j].onclick = function() {
+				if (!detail) return;
+				peerView = {
+					mac: detail.mac,
+					port: this.getAttribute('data-port'),
+					proto: this.getAttribute('data-proto'),
+					v6: this.getAttribute('data-v6') === '1',
+					page: 1,
+					limit: 50
+				};
+				loadPeers();
+			};
+		}
+	}
+
+	function loadPeers() {
+		var box = $('pcdn-peer-box');
+		if (!box || !peerView) return;
+
+		box.innerHTML = '<p class="pcdn-muted" style="margin:8px 0 0;">正在读取对端 IP…</p>';
+
+		var query = {
+			mac: peerView.mac,
+			port: peerView.port,
+			proto: peerView.proto,
+			v6: peerView.v6 ? 'true' : 'false',
+			page: peerView.page
+		};
+		if (peerView.limit) {
+			query.limit = peerView.limit;
+		}
+
+		XHR.get(U.peers, query, function(x, d) {
+			if (!peerView) return;
+
+			if (!d || !d.ok) {
+				box.innerHTML = '<div class="pcdn-peers">'
+					+ '<p class="pcdn-msg pcdn-msg-bad" style="display:block;">'
+					+ esc((d && d.message) || '无法读取对端 IP') + '</p>'
+					+ '<button type="button" class="cbi-button cbi-button-neutral pcdn-rowbtn" id="pcdn-peer-close">关闭</button>'
+					+ '</div>';
+				var cb = $('pcdn-peer-close');
+				if (cb) cb.onclick = function() {
+					peerView = null;
+					var b = $('pcdn-peer-box');
+					if (b) b.innerHTML = '';
+				};
+				return;
+			}
+
+			renderPeers(d.data);
+		});
+	}
+
+	function renderPeers(v) {
+		v = v || {};
+
+		var box = $('pcdn-peer-box');
+		if (!box || !peerView) return;
+
+		var ips = v.peer_ips || [];
+		var count = Number(v.peer_count || 0);
+		var limit = Number(v.limit || peerView.limit || ips.length || 50);
+		var page = Number(v.page || peerView.page || 1);
+		var pages = Math.max(1, Math.ceil(count / limit));
+
+		peerView.page = page;
+		peerView.limit = limit;
+
+		var html = '<div class="pcdn-peers">'
+			+ '<div class="pcdn-detail-head">'
+			+ '<h4 style="font-size:13px;">端口 ' + esc(v.port) + ' / ' + esc(v.proto) + '（'
+			+ (v.v6 ? 'IPv6' : 'IPv4') + '）的对端 IP</h4>'
+			+ '<span style="flex:1;"></span>'
+			+ '<button type="button" class="cbi-button cbi-button-neutral pcdn-rowbtn" id="pcdn-peer-close">关闭</button>'
+			+ '</div>'
+			+ '<p class="pcdn-muted" style="margin:0 0 6px;">共 ' + count
+			+ ' 个对端，单页最多 ' + limit + ' 个</p>'
+			+ '<div class="pcdn-peers-list">'
+			+ (ips.length ? ips.map(esc).join('<br>') : '<span class="pcdn-muted">本页没有对端 IP</span>')
+			+ '</div>'
+			+ '<div class="pcdn-pager">'
+			+ '<button type="button" class="cbi-button cbi-button-neutral pcdn-rowbtn" id="pcdn-peer-prev"'
+				+ (page <= 1 ? ' disabled' : '') + '>上一页</button>'
+			+ '<span>第 ' + page + ' / ' + pages + ' 页</span>'
+			+ '<button type="button" class="cbi-button cbi-button-neutral pcdn-rowbtn" id="pcdn-peer-next"'
+				+ (v.truncated ? '' : ' disabled') + '>下一页</button>'
+			+ '</div>'
+			+ '</div>';
+
+		box.innerHTML = html;
+
+		var close = $('pcdn-peer-close');
+		if (close) close.onclick = function() {
+			peerView = null;
+			box.innerHTML = '';
+		};
+
+		var prev = $('pcdn-peer-prev');
+		if (prev) prev.onclick = function() {
+			if (peerView.page <= 1) return;
+			peerView.page--;
+			loadPeers();
+		};
+
+		var next = $('pcdn-peer-next');
+		if (next) next.onclick = function() {
+			peerView.page++;
+			loadPeers();
+		};
 	}
 
 	function httpCheck() {

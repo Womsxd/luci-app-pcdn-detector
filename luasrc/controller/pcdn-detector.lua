@@ -83,6 +83,12 @@ function index()
 	entry({ "admin", "services", "pcdn-detector", "stats" },
 		call("action_stats")).leaf = true
 
+	entry({ "admin", "services", "pcdn-detector", "device" },
+		call("action_device")).leaf = true
+
+	entry({ "admin", "services", "pcdn-detector", "peers" },
+		call("action_peers")).leaf = true
+
 	entry({ "admin", "services", "pcdn-detector", "httpinfo" },
 		call("action_httpinfo")).leaf = true
 
@@ -177,6 +183,57 @@ local function reply_text(text)
 	http.prepare_content("text/plain; charset=utf-8")
 	http.header("Cache-Control", "no-store")
 	http.write(text or "")
+end
+
+-- 查询参数编码：保留 RFC 3986 unreserved 字符，其余（如 MAC 里的 ':'）转义
+local function url_encode(s)
+	return (tostring(s or ""):gsub("[^%w%-%._~]", function(c)
+		return string.format("%%%02X", string.byte(c))
+	end))
+end
+
+-- 访问本机 HTTP API，统一返回 { ok, available, http_status, data, message }。
+-- 上游非 200 时返回 {"error":"..."}，这里把 error 文本并入 message，前端可直接展示。
+local function api_request(h, path)
+	local status, body, err = util.http_raw_get(h.listen, path, h.token)
+
+	if not status then
+		return { ok = false, available = false, message = err or "无法访问 HTTP API" }
+	end
+
+	local data
+	if type(body) == "string" and body ~= "" then
+		data = util.json_decode(body)
+	end
+
+	if status ~= 200 then
+		return {
+			ok = false,
+			available = true,
+			http_status = status,
+			message = (type(data) == "table" and data.error)
+				or ("HTTP API 返回状态码 " .. tostring(status)),
+		}
+	end
+
+	if type(data) ~= "table" then
+		return {
+			ok = false,
+			available = true,
+			http_status = status,
+			message = "HTTP API 返回了无法解析的数据",
+		}
+	end
+
+	return { ok = true, available = true, http_status = status, data = data }
+end
+
+-- 空 JSON 数组解码后是空表，编码时会变成 {}；显式标记为数组，避免前端遍历时报错
+local function as_array(value)
+	if type(value) ~= "table" then
+		return util.array()
+	end
+	return util.array(value)
 end
 
 local function running_pid()
@@ -376,28 +433,134 @@ function action_stats()
 		return
 	end
 
-	local body, err = util.http_get(h.listen, "/api/v1/status", h.token)
-	if not body then
-		reply_json({ ok = false, available = false, message = err or "无法访问 HTTP API" })
+	local status = api_request(h, "/api/v1/status")
+	if not status.ok then
+		reply_json({
+			ok = false,
+			available = false,
+			http_status = status.http_status,
+			message = status.message,
+		})
 		return
 	end
 
-	local status = util.json_decode(body)
-	if not status then
-		reply_json({ ok = false, available = false, message = "HTTP API 返回了无法解析的数据" })
-		return
+	-- 上游 /api/v1/devices 只返回设备级汇总（IPv4 / IPv6 的端口条目数与封禁数），
+	-- 端口明细改由 /api/v1/device 按需读取；这里不再假设每设备带有 ports 数组。
+	local devices = api_request(h, "/api/v1/devices")
+	if devices.ok then
+		devices.data.devices = as_array(devices.data.devices)
 	end
-
-	local devbody = util.http_get(h.listen, "/api/v1/devices", h.token)
-	local devices = devbody and util.json_decode(devbody) or nil
 
 	reply_json({
 		ok = true,
 		available = true,
-		status = status,
-		devices = devices,
-		devices_error = (not devices) and "无法读取 /api/v1/devices" or nil,
+		status = status.data,
+		devices = devices.ok and devices.data or nil,
+		devices_error = (not devices.ok) and devices.message or nil,
 	})
+end
+
+-- 单设备端口明细：透传 /api/v1/device 的 family / state / limit / page
+function action_device()
+	local h = http_settings()
+
+	if not h.enabled then
+		reply_json({
+			ok = false,
+			available = false,
+			message = "HTTP API 未启用。可在「配置编辑」的 [http] 段启用后查看端口明细。",
+		})
+		return
+	end
+
+	local mac = util.trim(http.formvalue("mac") or "")
+	if mac == "" then
+		reply_json({ ok = false, available = true, message = "缺少 mac 参数" })
+		return
+	end
+
+	-- 只接受上游支持的取值，避免把任意字符串拼进请求路径
+	local family = http.formvalue("family") or "all"
+	if family ~= "v4" and family ~= "v6" then
+		family = "all"
+	end
+
+	local state = http.formvalue("state") or "all"
+	if state ~= "banned" and state ~= "unbanned" then
+		state = "all"
+	end
+
+	local limit = tonumber(http.formvalue("limit") or "") or 100
+	if limit < 1 then
+		limit = 100
+	elseif limit > 1000 then
+		limit = 1000
+	end
+
+	local page = tonumber(http.formvalue("page") or "") or 1
+	if page < 1 then
+		page = 1
+	end
+
+	local res = api_request(h, string.format(
+		"/api/v1/device?mac=%s&family=%s&state=%s&limit=%d&page=%d",
+		url_encode(mac), family, state, limit, page))
+
+	if res.ok then
+		res.data.ports = as_array(res.data.ports)
+	end
+
+	reply_json(res)
+end
+
+-- 单端口对端 IP：透传 /api/v1/peers 的 proto / v6 / limit / page
+function action_peers()
+	local h = http_settings()
+
+	if not h.enabled then
+		reply_json({
+			ok = false,
+			available = false,
+			message = "HTTP API 未启用。可在「配置编辑」的 [http] 段启用后查看对端 IP。",
+		})
+		return
+	end
+
+	local mac = util.trim(http.formvalue("mac") or "")
+	local port = tonumber(http.formvalue("port") or "")
+
+	if mac == "" or not port or port < 0 or port > 65535 then
+		reply_json({ ok = false, available = true, message = "参数无效：需要 mac 与 0-65535 的 port" })
+		return
+	end
+
+	local proto = string.lower(http.formvalue("proto") or "udp")
+	if proto ~= "tcp" then
+		proto = "udp"
+	end
+
+	local v6 = http.formvalue("v6") == "1" or http.formvalue("v6") == "true"
+
+	local page = tonumber(http.formvalue("page") or "") or 1
+	if page < 1 then
+		page = 1
+	end
+
+	-- limit 留空时由上游按 [http] device_ip_limit 决定，请求值不能超过该上限
+	local limit = tonumber(http.formvalue("limit") or "") or 0
+
+	local path = string.format("/api/v1/peers?mac=%s&port=%d&proto=%s&v6=%s&page=%d",
+		url_encode(mac), port, proto, v6 and "true" or "false", page)
+	if limit > 0 then
+		path = path .. "&limit=" .. tostring(limit)
+	end
+
+	local res = api_request(h, path)
+	if res.ok then
+		res.data.peer_ips = as_array(res.data.peer_ips)
+	end
+
+	reply_json(res)
 end
 
 -- 获取 [http] 端口 / 密钥（按需调用，不参与状态轮询）
