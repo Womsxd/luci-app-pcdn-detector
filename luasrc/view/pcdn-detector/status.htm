@@ -112,6 +112,14 @@
 		font-size: 13px;
 	}
 	.pcdn-rowbtn { padding: 1px 6px; font-size: 12px; line-height: 20px; }
+	.pcdn-auto {
+		display: inline-block;
+		font-size: 13px;
+		margin: 0 8px 4px 2px;
+		white-space: nowrap;
+		vertical-align: middle;
+	}
+	.pcdn-auto input { vertical-align: -2px; margin-right: 3px; }
 	.pcdn-peers {
 		margin-top: 10px;
 		padding: 8px 10px;
@@ -175,6 +183,7 @@
 		<button type="button" class="cbi-button cbi-button-neutral" id="pcdn-btn-httpcheck">检测 HTTP API</button>
 		<button type="button" class="cbi-button cbi-button-neutral" id="pcdn-btn-httpkey">获取密钥</button>
 		<button type="button" class="cbi-button cbi-button-neutral" id="pcdn-btn-httpcopy" disabled>复制密钥</button>
+		<label class="pcdn-auto"><input type="checkbox" id="pcdn-auto" checked="checked" /> 自动刷新（5 秒）</label>
 	</div>
 
 	<p id="pcdn-warn" class="pcdn-msg"></p>
@@ -217,6 +226,12 @@
 		reason: '',
 		failedAt: 0
 	};
+
+	// 自动刷新：页面不可见或开关关闭时不轮询，避免后台空转
+	var autoTimer = null;
+	var autoEnabled = true;
+	var refreshing = false;
+	var inflightTimer = null;
 
 	// 端口明细 / 对端 IP 均按需读取，不随汇总接口全量下发
 	var detail = null;    // { mac, family, state, limit, page }
@@ -323,11 +338,34 @@
 		if (!text) el.className = 'pcdn-msg';
 	}
 
-	function refresh() {
+	function refresh(done) {
+		// 同一时刻只允许一个轮询在途：慢请求不会叠加成多个 CGI 进程
+		if (refreshing) {
+			if (done) done();
+			return;
+		}
+		refreshing = true;
+
+		var settled = false;
+		function finish() {
+			if (settled) return;
+			settled = true;
+			if (inflightTimer) {
+				clearTimeout(inflightTimer);
+				inflightTimer = null;
+			}
+			refreshing = false;
+			if (done) done();
+		}
+
+		// 兜底：请求卡住时 15 秒后解除在途标记，避免自动刷新永久停摆
+		inflightTimer = setTimeout(finish, 15000);
+
 		XHR.get(U.status, null, function(x, d) {
 			if (!d || !d.ok) {
 				setText('pcdn-run', '状态获取失败');
 				$('pcdn-run').className = 'pcdn-value pcdn-bad';
+				finish();
 				return;
 			}
 
@@ -376,7 +414,7 @@
 			}
 
 			configureDirect(d);
-			refreshStats();
+			refreshStats(finish);
 		});
 	}
 
@@ -474,44 +512,49 @@
 		}
 	}
 
-	function refreshStats() {
+	function refreshStats(done) {
 		var box = $('pcdn-stats');
-		if (!box) return;
+		if (!box) {
+			if (done) done();
+			return;
+		}
 
 		if (!httpEnabled) {
 			setHttpState('未启用', 'pcdn-muted');
 			box.innerHTML = '<p class="pcdn-muted" style="margin:0;">'
 				+ 'HTTP API 未启用 <a href="' + U.config + '">前往配置</a></p>';
 			if (detail) closeDetail();
+			if (done) done();
 			return;
 		}
 
 		if (!direct.enabled) {
-			statsViaProxy(box);
+			statsViaProxy(box, done);
 			return;
 		}
 
 		// 直连与代理保持一致：仍然是 status + devices 两段数据
 		directGet('/api/v1/status', null, function(err, s) {
 			if (err) {
-				statsViaProxy(box);
+				statsViaProxy(box, done);
 				return;
 			}
 
 			directGet('/api/v1/devices', null, function(err2, dv) {
 				if (err2) {
-					statsViaProxy(box);
+					statsViaProxy(box, done);
 					return;
 				}
 
 				setHttpState('正常（直连）', 'pcdn-ok');
 				$('pcdn-http-state').title = direct.base;
 				renderStats(box, s || {}, dv || {}, null);
+				if (done) done();
 			});
 		});
 	}
 
-	function statsViaProxy(box) {
+	function statsViaProxy(box, done) {
 		XHR.get(U.stats, null, function(x, d) {
 			if (!d || !d.available) {
 				setHttpState(direct.reason ? '代理' : '异常', direct.reason ? 'pcdn-muted' : 'pcdn-bad');
@@ -519,11 +562,13 @@
 					+ esc((d && d.message) || '无法读取实时统计')
 					+ (direct.reason ? '<br>直连不可用：' + esc(direct.reason) : '')
 					+ ' <a href="' + U.config + '">前往配置</a></p>';
+				if (done) done();
 				return;
 			}
 
 			setHttpState(direct.reason ? '正常（代理）' : '正常', 'pcdn-ok');
 			renderStats(box, d.status || {}, d.devices || {}, d.devices_error || null);
+			if (done) done();
 		});
 	}
 
@@ -1055,7 +1100,43 @@
 	$('pcdn-btn-httpkey').onclick = getHttpKey;
 	$('pcdn-btn-httpcopy').onclick = copyHttpKey;
 
+	// 自动刷新：开关关闭或页面不可见时停掉定时器，避免后台反复拉起 Lua 进程
+	function scheduleAuto() {
+		if (autoTimer) {
+			clearInterval(autoTimer);
+			autoTimer = null;
+		}
+		if (!autoEnabled || document.hidden) return;
+
+		autoTimer = setInterval(function() {
+			if (document.hidden || !autoEnabled) return;
+			refresh();
+		}, 5000);
+	}
+
+	var autoBox = $('pcdn-auto');
+	try {
+		autoEnabled = window.localStorage.getItem('pcdn-auto-refresh') !== '0';
+	} catch (e) {}
+	if (autoBox) {
+		autoBox.checked = autoEnabled;
+		autoBox.onchange = function() {
+			autoEnabled = !!this.checked;
+			try {
+				window.localStorage.setItem('pcdn-auto-refresh', autoEnabled ? '1' : '0');
+			} catch (e) {}
+			scheduleAuto();
+			if (autoEnabled && !document.hidden) refresh();
+		};
+	}
+
+	document.addEventListener('visibilitychange', function() {
+		// 切回前台立即刷新一次并恢复定时器；切到后台则停掉
+		if (!document.hidden && autoEnabled) refresh();
+		scheduleAuto();
+	});
+
 	refresh();
-	setInterval(refresh, 5000);
+	scheduleAuto();
 })();
 //]]></script>

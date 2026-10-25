@@ -88,6 +88,8 @@
 	var info = document.getElementById('pcdn-log-info');
 	var paused = false;
 	var timer = null;
+	var loading = false;
+	var loadTimer = null;
 	var lastText = '';
 	var lastUpdate = null;
 
@@ -103,12 +105,31 @@
 	}
 
 	function refresh() {
+		// 上一次还没返回就不再发起，避免慢请求叠加
+		if (loading) return;
+		loading = true;
+
+		var settled = false;
+		function finish() {
+			if (settled) return;
+			settled = true;
+			if (loadTimer) {
+				clearTimeout(loadTimer);
+				loadTimer = null;
+			}
+			loading = false;
+		}
+
+		loadTimer = setTimeout(finish, 15000);
+
 		var follow = atBottom(box);
 		var params = 'lines=' + encodeURIComponent($('pcdn-log-lines').value)
 			+ '&level=' + encodeURIComponent($('pcdn-log-level').value)
 			+ '&keyword=' + encodeURIComponent($('pcdn-log-keyword').value || '');
 
 		XHR.get(U + '?' + params, null, function(x, data) {
+			finish();
+
 			if (!x || x.status !== 200) {
 				setInfo('读取日志失败（HTTP ' + (x ? x.status : '?') + '）', false);
 				return;
@@ -144,9 +165,13 @@
 			clearInterval(timer);
 			timer = null;
 		}
-		if (!paused && $('pcdn-log-auto').checked) {
-			timer = setInterval(refresh, parseInt($('pcdn-log-interval').value, 10) || 5000);
-		}
+		// 页面不可见时停掉自动刷新，避免后台反复执行 logread
+		if (paused || document.hidden || !$('pcdn-log-auto').checked) return;
+
+		timer = setInterval(function() {
+			if (document.hidden || paused) return;
+			refresh();
+		}, parseInt($('pcdn-log-interval').value, 10) || 5000);
 	}
 
 	var refreshBtn = $('pcdn-log-refresh');
@@ -199,6 +224,11 @@
 	$('pcdn-log-keyword').onkeydown = function(ev) {
 		if (ev.key === 'Enter') refresh();
 	};
+
+	document.addEventListener('visibilitychange', function() {
+		if (!document.hidden && !paused && $('pcdn-log-auto').checked) refresh();
+		restartTimer();
+	});
 
 	refresh();
 	restartTimer();
