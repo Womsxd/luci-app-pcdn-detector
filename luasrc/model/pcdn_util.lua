@@ -349,22 +349,28 @@ end
 
 M.parse_listen = parse_listen
 
--- 返回 status, body, err；401/403 等也返回状态码，便于前端显示“密钥错误”
-function M.http_raw_get(listen, path, token)
+-- 单个 body 块大小与总量上限：上限只用于兜住异常上游（卡死连接 / 无限输出），
+-- 正常情况下端口明细一页也就几百 KiB。
+local STREAM_CHUNK = 16384
+local STREAM_MAX_BYTES = 32 * 1024 * 1024
+local HEAD_MAX_BYTES = 16384
+
+-- 建立到上游的连接并发出请求（不读响应）；失败返回 nil, err
+local function http_connect(listen, path, token)
 	local ok, nixio = pcall(require, "nixio")
 	if not ok or not nixio then
-		return nil, nil, "系统缺少 nixio，无法访问 HTTP API"
+		return nil, "系统缺少 nixio，无法访问 HTTP API"
 	end
 
 	local host, port = parse_listen(listen)
 	if not host then
-		return nil, nil, "HTTP 监听地址无效：" .. tostring(listen)
+		return nil, "HTTP 监听地址无效：" .. tostring(listen)
 	end
 
 	local domain = host:find(":", 1, true) and "inet6" or "inet"
 	local sock = nixio.socket(domain, "stream")
 	if not sock then
-		return nil, nil, "无法创建 socket"
+		return nil, "无法创建 socket"
 	end
 
 	sock:setopt("socket", "rcvtimeo", 2000)
@@ -373,7 +379,7 @@ function M.http_raw_get(listen, path, token)
 	local cok, cerr = sock:connect(host, port)
 	if not cok then
 		sock:close()
-		return nil, nil, "无法连接 " .. host .. ":" .. tostring(port) .. (cerr and ("（" .. tostring(cerr) .. "）") or "")
+		return nil, "无法连接 " .. host .. ":" .. tostring(port) .. (cerr and ("（" .. tostring(cerr) .. "）") or "")
 	end
 
 	local hosthdr = host:find(":") and ("[" .. host .. "]") or host
@@ -389,6 +395,16 @@ function M.http_raw_get(listen, path, token)
 	req[#req + 1] = ""
 
 	sock:send(table.concat(req, "\r\n"))
+	return sock
+end
+
+-- 返回 status, body, err；401/403 等也返回状态码，便于前端显示“密钥错误”。
+-- 仅用于体积很小的响应（如 /api/v1/status）：整段缓冲，便于判断空响应。
+function M.http_raw_get(listen, path, token)
+	local sock, err = http_connect(listen, path, token)
+	if not sock then
+		return nil, nil, err
+	end
 
 	local buf = {}
 	while true do
@@ -408,6 +424,118 @@ function M.http_raw_get(listen, path, token)
 	local status = tonumber(resp:match("^HTTP/%d%.%d%s+(%d+)")) or 0
 	local body = resp:match("\r\n\r\n(.*)$") or ""
 	return status, body, nil
+end
+
+-- chunked 解码（仅作兜底：向 HTTP/1.0 发请求时上游不应分块）
+local function dechunk(raw)
+	local out = {}
+	local pos = 1
+
+	while true do
+		local eol = raw:find("\r\n", pos, true)
+		if not eol then
+			break
+		end
+
+		local size = tonumber(raw:sub(pos, eol - 1):match("^%s*(%x+)") or "", 16)
+		if not size or size == 0 then
+			break
+		end
+
+		pos = eol + 2
+		if pos + size - 1 > #raw then
+			break
+		end
+
+		out[#out + 1] = raw:sub(pos, pos + size - 1)
+		pos = pos + size + 2
+	end
+
+	return table.concat(out)
+end
+
+-- 流式读取上游响应：
+--   成功返回 code, pump, err, close
+--   pump(write_fn) 逐块读出 body 并调用 write_fn(chunk)，不把整个响应体拼成一份字符串；
+--   调用方决定不读 body 时用 close() 关闭连接。
+--   上游若使用 chunked，退化为读全量 + dechunk（正常不会走到）。
+function M.http_stream_get(listen, path, token)
+	local sock, err = http_connect(listen, path, token)
+	if not sock then
+		return nil, nil, err
+	end
+
+	local function close()
+		sock:close()
+	end
+
+	-- 只读到响应头结束（\r\n\r\n），body 的剩余部分留在 rest 里
+	local head = ""
+	local sep
+
+	while #head <= HEAD_MAX_BYTES do
+		local data = sock:recv(8192)
+		if not data or #data == 0 then
+			break
+		end
+		head = head .. data
+		sep = head:find("\r\n\r\n", 1, true)
+		if sep then
+			break
+		end
+	end
+
+	if head == "" then
+		close()
+		return nil, nil, "HTTP API 无响应"
+	end
+
+	if not sep then
+		close()
+		return nil, nil, "HTTP API 响应头不完整或过大"
+	end
+
+	local raw_head = head:sub(1, sep - 1)
+	local rest = head:sub(sep + 4)
+	local code = tonumber(raw_head:match("^HTTP/%d%.%d%s+(%d+)")) or 0
+
+	if raw_head:lower():find("\r\ntransfer%-encoding:%s*chunked", 1) then
+		local buf = { rest }
+		while true do
+			local data = sock:recv(STREAM_CHUNK)
+			if not data or #data == 0 then
+				break
+			end
+			buf[#buf + 1] = data
+		end
+		close()
+
+		local body = dechunk(table.concat(buf))
+		return code, function(write_fn) write_fn(body) end, nil, function() end
+	end
+
+	local pump = function(write_fn)
+		local total = 0
+
+		if rest ~= "" then
+			write_fn(rest)
+			total = #rest
+		end
+
+		while total < STREAM_MAX_BYTES do
+			local data = sock:recv(STREAM_CHUNK)
+			if not data or #data == 0 then
+				break
+			end
+			write_fn(data)
+			total = total + #data
+		end
+
+		close()
+		return total
+	end
+
+	return code, pump, nil, close
 end
 
 return M

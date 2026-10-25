@@ -207,14 +207,22 @@ local HTTP_REASON = {
 	[503] = "Service Unavailable",
 }
 
--- 透传上游 JSON：Lua 侧不解析、不重组，原样输出 body 与状态码。
--- 大响应（如 /api/v1/device 的上千条端口）只经过一次字符串拷贝，
--- 不再解码成 Lua 表（峰值内存可降到原来的几分之一），解析交给浏览器 JSON.parse。
-local function reply_upstream(code, body)
+-- 流式透传：先写状态码与响应头，再把 body 逐块转发给浏览器。
+-- Lua 侧不解析上游 JSON（解析交给浏览器 JSON.parse），只保留当前块（≤16 KiB），
+-- 峰值不随 body 线性增长；读取总量有上限，异常上游不会把 CGI 进程撑爆。
+local function reply_upstream_stream(code, pump, close)
+	if not code or code == 0 then
+		if close then
+			close()
+		end
+		reply_upstream_unreachable("HTTP API 无响应")
+		return
+	end
+
 	http.status(code, HTTP_REASON[code] or "OK")
 	http.prepare_content("application/json")
 	http.header("Cache-Control", "no-store")
-	http.write(body or "")
+	pump(http.write)
 end
 
 -- 上游不可达时返回本地的 503 JSON（绕开 LuCI 默认错误页，前端好统一展示）
@@ -447,25 +455,43 @@ function action_stats()
 	end
 
 	-- 上游 /api/v1/devices 只返回设备级汇总（IPv4 / IPv6 的端口条目数与封禁数），
-	-- 端口明细由 /api/v1/device 按需读取。两段 JSON 原样拼接，不在 Lua 侧解析。
-	local d_code, d_body, d_err = util.http_raw_get(h.listen, "/api/v1/devices", h.token)
-	local devices_ok = (d_code == 200 and type(d_body) == "string" and d_body ~= "")
+	-- 端口明细由 /api/v1/device 按需读取。这里只取响应头，body 边读边转发，
+	-- 与 status 段原样拼接，不在 Lua 侧解析、也不整段驻留。
+	local d_code, d_pump, d_err, d_close = util.http_stream_get(h.listen, "/api/v1/devices", h.token)
 
 	local devices_error
 	if not d_code then
 		devices_error = d_err or "无法访问 HTTP API"
 	elseif d_code ~= 200 then
 		devices_error = "HTTP API 返回状态码 " .. tostring(d_code)
-	elseif not devices_ok then
-		devices_error = "HTTP API 返回了空响应"
+		if d_close then
+			d_close()
+		end
+		d_pump = nil
 	end
 
 	http.prepare_content("application/json")
 	http.header("Cache-Control", "no-store")
 	http.write('{"ok":true,"available":true,"status":')
 	http.write(body)
-	http.write(',"devices":')
-	http.write(devices_ok and d_body or "null")
+
+	-- 收到第一块 body 后才写 devices 字段：上游返回空 body 时仍能得到合法 JSON
+	local devices_started = false
+	if d_pump then
+		d_pump(function(chunk)
+			if not devices_started then
+				devices_started = true
+				http.write(',"devices":')
+			end
+			http.write(chunk)
+		end)
+	end
+
+	if not devices_started then
+		http.write(',"devices":null')
+		devices_error = devices_error or "HTTP API 返回了空响应"
+	end
+
 	if devices_error then
 		http.write(',"devices_error":')
 		http.write(util.json_encode(devices_error))
@@ -515,7 +541,7 @@ function action_device()
 		page = 1
 	end
 
-	local code, body, err = util.http_raw_get(h.listen, string.format(
+	local code, pump, err, close = util.http_stream_get(h.listen, string.format(
 		"/api/v1/device?mac=%s&family=%s&state=%s&limit=%d&page=%d",
 		url_encode(mac), family, state, limit, page), h.token)
 
@@ -524,7 +550,7 @@ function action_device()
 		return
 	end
 
-	reply_upstream(code, body)
+	reply_upstream_stream(code, pump, close)
 end
 
 -- 单端口对端 IP：透传 /api/v1/peers 的 proto / v6 / limit / page
@@ -569,13 +595,13 @@ function action_peers()
 		path = path .. "&limit=" .. tostring(limit)
 	end
 
-	local code, body, err = util.http_raw_get(h.listen, path, h.token)
+	local code, pump, err, close = util.http_stream_get(h.listen, path, h.token)
 	if not code then
 		reply_upstream_unreachable(err)
 		return
 	end
 
-	reply_upstream(code, body)
+	reply_upstream_stream(code, pump, close)
 end
 
 -- 获取 [http] 端口 / 密钥（按需调用，不参与状态轮询）
