@@ -65,8 +65,9 @@ jobs:
             exit 1
           fi
 
+          # strategy.matrix 必须是映射，数组要包在 include 里
           matrix="$(printf '%s\n' "${pairs[@]}" \
-            | jq -R -s -c 'split("\n") | map(select(length > 0)) | map(split("|") | {version: .[0], ext: .[1]})')"
+            | jq -R -s -c '{include: (split("\n") | map(select(length > 0)) | map(split("|") | {version: .[0], ext: .[1]}))}')"
 
           echo "矩阵：$matrix"
           echo "matrix=$matrix" >> "$GITHUB_OUTPUT"
