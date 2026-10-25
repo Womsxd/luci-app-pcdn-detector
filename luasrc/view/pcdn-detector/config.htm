@@ -12,12 +12,55 @@
 		font-size: 13px;
 		word-break: break-all;
 	}
-	.pcdn-editor {
-		width: 100%;
-		min-height: 520px;
+	.pcdn-cfg-pos {
+		margin-left: 10px;
+		color: #666;
+	}
+	.pcdn-editor-wrap {
+		display: flex;
+		align-items: stretch;
+		height: 520px;
+		border: 1px solid #ccc;
+		border-radius: 3px;
+		overflow: hidden;
+	}
+	.pcdn-gutter {
+		flex: 0 0 auto;
+		overflow: hidden;
+		background: rgba(0, 0, 0, 0.045);
+		border-right: 1px solid rgba(0, 0, 0, 0.1);
+		color: #999;
+		-webkit-user-select: none;
+		-moz-user-select: none;
+		user-select: none;
+	}
+	.pcdn-gutter-inner {
+		padding: 8px 8px 0 6px;
+		box-sizing: border-box;
+		text-align: right;
 		font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
 		font-size: 12px;
-		line-height: 1.5;
+		line-height: 18px;
+		white-space: pre;
+		will-change: transform;
+	}
+	.pcdn-gutter-line { display: block; }
+	.pcdn-gutter-cur { color: #1565c0; font-weight: bold; }
+	.pcdn-editor {
+		flex: 1 1 auto;
+		width: auto;
+		min-width: 0;
+		height: 100%;
+		min-height: 0;
+		margin: 0;
+		padding: 8px 10px;
+		box-sizing: border-box;
+		border: 0;
+		outline: none;
+		resize: none;
+		font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+		font-size: 12px;
+		line-height: 18px;
 		tab-size: 4;
 		white-space: pre;
 		overflow: auto;
@@ -43,6 +86,7 @@
 <div class="pcdn-cfg-head">
 	配置文件：<code id="pcdn-cfg-path">读取中…</code>
 	<span id="pcdn-cfg-state"></span>
+	<span id="pcdn-cfg-pos" class="pcdn-cfg-pos"></span>
 </div>
 
 <div class="cbi-section">
@@ -51,7 +95,12 @@
 		先执行 <code>pcdn-detect -T</code> 校验，失败不会写入；保存成功后运行中的服务通过 SIGHUP 热重载。
 	</p>
 
-	<textarea id="pcdn-cfg-text" class="cbi-input-textarea pcdn-editor" spellcheck="false" autocapitalize="off" autocomplete="off" wrap="off"></textarea>
+	<div class="pcdn-editor-wrap">
+		<div class="pcdn-gutter" id="pcdn-cfg-gutter" aria-hidden="true">
+			<div class="pcdn-gutter-inner" id="pcdn-cfg-gutter-inner"></div>
+		</div>
+		<textarea id="pcdn-cfg-text" class="cbi-input-textarea pcdn-editor" spellcheck="false" autocapitalize="off" autocomplete="off" wrap="off"></textarea>
+	</div>
 
 	<div class="cbi-page-actions pcdn-cfg-actions">
 		<button type="button" class="cbi-button cbi-button-apply" id="pcdn-cfg-save">保存并应用</button>
@@ -76,7 +125,75 @@
 	};
 
 	var editor = document.getElementById('pcdn-cfg-text');
+	var gutterInner = document.getElementById('pcdn-cfg-gutter-inner');
+	var posEl = document.getElementById('pcdn-cfg-pos');
 	var dirty = false;
+	var gutterCount = 0;
+	var gutterCur = -1;
+
+	function countLines(text) {
+		var n = 1;
+		for (var i = 0; i < text.length; i++) {
+			if (text.charCodeAt(i) === 10) n++;
+		}
+		return n;
+	}
+
+	// 行号栏：只有总行数变化时才重建 DOM，避免每次按键全量刷新。
+	function renderGutter() {
+		var total = countLines(editor.value);
+
+		if (total !== gutterCount) {
+			var html = [];
+			for (var i = 1; i <= total; i++) {
+				html.push('<span class="pcdn-gutter-line">' + i + '</span>');
+			}
+			gutterInner.innerHTML = html.join('');
+			gutterInner.style.minWidth = String(total).length + 'ch';
+			gutterCount = total;
+			gutterCur = -1;
+		}
+
+		updateCursor();
+		syncGutterScroll();
+	}
+
+	// 当前光标位置：行列号 + 行号栏高亮。
+	function updateCursor() {
+		var pos = editor.selectionStart || 0;
+		var text = editor.value;
+		var line = 1;
+		var col = 1;
+
+		for (var i = 0; i < pos; i++) {
+			if (text.charCodeAt(i) === 10) {
+				line++;
+				col = 1;
+			} else {
+				col++;
+			}
+		}
+
+		if (line !== gutterCur) {
+			var nodes = gutterInner.childNodes;
+			if (gutterCur > 0 && nodes[gutterCur - 1]) {
+				nodes[gutterCur - 1].className = 'pcdn-gutter-line';
+			}
+			if (nodes[line - 1]) {
+				nodes[line - 1].className = 'pcdn-gutter-line pcdn-gutter-cur';
+			}
+			gutterCur = line;
+		}
+
+		if (posEl) {
+			posEl.textContent = '第 ' + line + ' 行，第 ' + col + ' 列 · 共 ' + (gutterCount || 1) + ' 行';
+		}
+	}
+
+	// 行号栏自身不滚动，用 translateY 跟随 textarea 的滚动位置。
+	function syncGutterScroll() {
+		gutterInner.style.transform = 'translateY(' + (-editor.scrollTop) + 'px)';
+	}
 
 	// 兼容不同 LuCI：部分固件的 XHR 没有 post 方法
 	function xhrPost(url, data, cb) {
@@ -154,6 +271,7 @@
 			}
 
 			editor.value = d.content || '';
+			renderGutter();
 			document.getElementById('pcdn-cfg-path').textContent = d.path || '';
 			dirty = false;
 			setState();
@@ -289,7 +407,20 @@
 			dirty = true;
 			setState();
 		}
+		renderGutter();
 	};
+
+	editor.onscroll = syncGutterScroll;
+	editor.onclick = updateCursor;
+	editor.onkeyup = updateCursor;
+	editor.onfocus = updateCursor;
+
+	// 方向键/鼠标拖动改变光标时同步行列显示（部分浏览器只发 selectionchange）。
+	if (document.addEventListener) {
+		document.addEventListener('selectionchange', function() {
+			if (document.activeElement === editor) updateCursor();
+		});
+	}
 
 	editor.onkeydown = function(ev) {
 		// Ctrl/Cmd + S 保存
@@ -342,6 +473,7 @@
 		if (dirty) return '配置尚未保存，确定离开？';
 	};
 
+	renderGutter();
 	load();
 })();
 //]]></script>
