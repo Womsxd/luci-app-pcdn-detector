@@ -86,6 +86,6 @@ sh -n root/usr/share/pcdn-detector/update.sh
 
 ## 许可证与 CLA
 
-本项目以 [GNU General Public License v3.0](LICENSE) 发布，与上游 [pcdn-detector](https://cnb.cool/womsxd/pcdn-detector) 保持一致。
+本项目以 [GNU General Public License v3.0](LICENSE) 发布，与上游 [pcdn-detector](https://github.com/Womsxd/pcdn-detector) 保持一致。
 
 提交 Pull Request 即表示您同意[贡献者许可协议（CLA）](CLA.md)，该协议适用于您当前及未来的所有贡献。提交前请阅读[贡献指南](CONTRIBUTING.md)（含 DCO 签署要求）。
