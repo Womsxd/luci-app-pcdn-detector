@@ -414,15 +414,50 @@
 			}
 
 			configureDirect(d);
+
+			// 服务未运行 / 未安装 / HTTP 服务器未开启时不再请求统计接口，
+			// 避免每次轮询都白起一个 Lua 进程，或去连一个必然失败的端口
+			if (!d.running || !d.bin_exists) {
+				setHttpState(d.bin_exists ? '未运行' : '未安装', 'pcdn-muted');
+				showStatsIdle(d.bin_exists
+					? 'pcdn-detect 未运行，已暂停读取实时统计；启动后自动恢复。'
+					: '未安装 pcdn-detect，请先到「下载/更新」安装。');
+				if (detail) closeDetail();
+				finish();
+				return;
+			}
+
+			if (!d.http_enabled) {
+				setHttpState('未启用', 'pcdn-muted');
+				showStatsDisabled();
+				if (detail) closeDetail();
+				finish();
+				return;
+			}
+
 			refreshStats(finish);
 		});
+	}
+
+	function showStatsIdle(text) {
+		var box = $('pcdn-stats');
+		if (!box) return;
+		box.innerHTML = '<p class="pcdn-muted" style="margin:0;">' + esc(text) + '</p>';
+	}
+
+	function showStatsDisabled() {
+		var box = $('pcdn-stats');
+		if (!box) return;
+		box.innerHTML = '<p class="pcdn-muted" style="margin:0;">'
+			+ 'HTTP API 未启用 <a href="' + U.config + '">前往配置</a></p>';
 	}
 
 	// 依据 /status 的返回决定是否直连：开关开启、地址可用、且不在失败冷却期内
 	function configureDirect(d) {
 		var base = '';
 
-		if (!d.direct_api) {
+		// HTTP API 没开启时直连没有意义
+		if (!d.direct_api || !d.http_enabled) {
 			direct.enabled = false;
 			direct.reason = '';
 			return;
@@ -521,8 +556,7 @@
 
 		if (!httpEnabled) {
 			setHttpState('未启用', 'pcdn-muted');
-			box.innerHTML = '<p class="pcdn-muted" style="margin:0;">'
-				+ 'HTTP API 未启用 <a href="' + U.config + '">前往配置</a></p>';
+			showStatsDisabled();
 			if (detail) closeDetail();
 			if (done) done();
 			return;
@@ -1004,6 +1038,8 @@
 
 			if (!d.enabled) {
 				setHttpState('未启用', 'pcdn-muted');
+			} else if (d.skipped) {
+				setHttpState('未运行', 'pcdn-muted');
 			} else if (!d.reachable) {
 				setHttpState('不可达', 'pcdn-bad');
 			} else if (d.ok) {

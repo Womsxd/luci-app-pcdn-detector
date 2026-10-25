@@ -266,6 +266,20 @@ local function running_pid()
 	return util.pid_of(bin_path())
 end
 
+-- 服务未运行 / 未安装时不发起 HTTP 连接：既省一次必然失败的 2 秒超时，
+-- 也不把 "无法连接 ... (111)" 这类底层错误抛给用户。
+-- nohttp 构建若把 [http] enabled 设为 true，进程会启动即退出（同样落到“未运行”），
+-- 因此这里不会去连一个不存在的 API。
+local function api_skip_reason()
+	if not fs.access(bin_path()) then
+		return "未安装 pcdn-detect，请先在「下载/更新」中安装。"
+	end
+	if not running_pid() then
+		return "服务未运行，未连接 HTTP API。"
+	end
+	return nil
+end
+
 -- 校验 TOML 文本：调用二进制自身的 -T/--test-config（与启动、热重载使用同一套规则）
 local function validate_text(text)
 	local bin = bin_path()
@@ -477,6 +491,12 @@ function action_stats()
 		return
 	end
 
+	local skip = api_skip_reason()
+	if skip then
+		reply_json({ ok = false, available = false, message = skip })
+		return
+	end
+
 	local code, body, err = util.http_raw_get(h.listen, "/api/v1/status", h.token)
 	if not code then
 		reply_upstream_unreachable(err)
@@ -556,6 +576,12 @@ function action_device()
 		return
 	end
 
+	local skip = api_skip_reason()
+	if skip then
+		reply_json({ ok = false, available = false, message = skip })
+		return
+	end
+
 	local mac = util.trim(http.formvalue("mac") or "")
 	if mac == "" then
 		reply_json({ ok = false, available = true, message = "缺少 mac 参数" })
@@ -607,6 +633,12 @@ function action_peers()
 			available = false,
 			message = "HTTP API 未启用。可在「配置编辑」的 [http] 段启用后查看对端 IP。",
 		})
+		return
+	end
+
+	local skip = api_skip_reason()
+	if skip then
+		reply_json({ ok = false, available = false, message = skip })
 		return
 	end
 
@@ -687,6 +719,23 @@ function action_httpcheck()
 			listen = h.listen,
 			token_set = h.token_set,
 			message = "HTTP 监听地址无效：" .. tostring(h.listen),
+		})
+		return
+	end
+
+	-- 服务未运行 / 未安装时直接给结论，不去连一个必然失败的端口
+	local skip = api_skip_reason()
+	if skip then
+		reply_json({
+			ok = false,
+			enabled = true,
+			reachable = false,
+			skipped = true,
+			host = h.host,
+			port = h.port,
+			url = h.url,
+			token_set = h.token_set,
+			message = skip,
 		})
 		return
 	end
