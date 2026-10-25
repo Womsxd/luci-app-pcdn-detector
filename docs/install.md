@@ -8,11 +8,11 @@
 
 | 源码树 | 最低版本 | 包格式 |
 | --- | --- | --- |
-| 官方 OpenWrt | 20.02 / 21.02 | 23.05 及更早为 `.ipk`；24.10+ 为 `.apk` |
+| 官方 OpenWrt | 20.02 / 21.02 | 23.05 / 24.10 为 `.ipk`；25.12+ 为 `.apk` |
 | Lean LEDE | 使用含 `luci-compat` 的 LuCI | 由构建树的包管理器决定 |
 | ImmortalWrt | 21.02+ | 由构建树的包管理器决定 |
 
-`Makefile` 使用标准 `BuildPackage`：构建树为 opkg 时输出 `.ipk`，`CONFIG_USE_APK=y` 时输出 `.apk`，无需为两种格式分别维护。`luci-compat` 已写入 `DEPENDS`，由包管理器自动安装。
+`Makefile` 使用标准 `BuildPackage`：构建树为 opkg 时输出 `.ipk`，`CONFIG_USE_APK=y` 时输出 `.apk`，无需为两种格式分别维护。官方 24.10 的 apk 开关在上游仍标记为 BROKEN（`depends on BROKEN`），所以 24.10 只能产出 `.ipk`；apk 需要 25.12 及更新的构建树。`luci-compat` 已写入 `DEPENDS`，由包管理器自动安装。
 
 本 LuCI 应用为 **noarch**（`PKGARCH:=all`）：包内只有 Lua / HTML / shell 脚本，同一份 `.ipk` / `.apk` 可安装在所有架构上。架构相关的只有 `pcdn-detect` 二进制，它不包含在本包内，由「下载/更新」按设备架构单独获取。
 
@@ -31,12 +31,14 @@ make package/luci-app-pcdn-detector/compile V=s
 产物：
 
 ```bash
-# opkg 构建树（未启用 CONFIG_USE_APK，如 23.05 及更早）
+# opkg 构建树（未启用 CONFIG_USE_APK，如 23.05 / 24.10）
 bin/packages/<arch>/luci/luci-app-pcdn-detector_*.ipk
 
-# apk 构建树（OpenWrt 24.10+）
+# apk 构建树（OpenWrt 25.12+）
 bin/packages/<arch>/luci/luci-app-pcdn-detector-*.apk
 ```
+
+> noarch 包（`PKGARCH:=all`）在部分构建树中会输出到 `bin/packages/<arch>/base/` 而不是 `luci/`。
 
 > `Makefile` 没有把 `pcdn-detect` 写成依赖，因为上游二进制通常不在官方 feed 中。
 > 首次安装后请在「下载/更新」中安装二进制，或手动放入 `/usr/bin/pcdn-detect`。

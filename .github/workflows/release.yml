@@ -5,9 +5,9 @@ on:
   workflow_dispatch:
     inputs:
       versions:
-        description: '要构建的 OpenWrt 版本，空格分隔（可填 all 或 21.02 / 22.03 / 23.05 / 24.10，其中 24.10 产出 apk）'
+        description: '要构建的 OpenWrt 版本，空格分隔（可填 all 或 21.02 / 22.03 / 23.05 / 24.10 / 25.12；25.12 产出 apk，其余为 ipk）'
         required: false
-        default: '23.05 24.10'
+        default: '23.05 25.12'
         type: string
       publish:
         description: '构建成功后创建 Git Tag 与 GitHub Release'
@@ -37,37 +37,35 @@ jobs:
         run: |
           set -euo pipefail
 
-          # all = 23.05（ipk）+ 24.10（apk），与 scripts/build-openwrt.sh 的约定一致
+          # all 展开为 23.05（ipk）与 25.12（apk），与 scripts/build-openwrt.sh 的约定一致
           versions=()
           for v in $VERSIONS; do
             if [ "$v" = "all" ]; then
-              versions+=(23.05 24.10)
+              versions+=(23.05 25.12)
             else
               versions+=("$v")
             fi
           done
 
-          pairs=()
+          list=()
           for v in "${versions[@]}"; do
             case "$v" in
-              21.02|22.03|23.05) ext=ipk ;;
-              24.10) ext=apk ;;
+              21.02|22.03|23.05|24.10|25.12) list+=("$v") ;;
               *)
                 echo "::error::不支持的 OpenWrt 版本：$v"
                 exit 1
                 ;;
             esac
-            pairs+=("$v|$ext")
           done
 
-          if [ ${#pairs[@]} -eq 0 ]; then
+          if [ ${#list[@]} -eq 0 ]; then
             echo "::error::versions 为空，请至少指定一个版本"
             exit 1
           fi
 
-          # strategy.matrix 必须是映射，数组要包在 include 里
-          matrix="$(printf '%s\n' "${pairs[@]}" \
-            | jq -R -s -c '{include: (split("\n") | map(select(length > 0)) | map(split("|") | {version: .[0], ext: .[1]}))}')"
+          # strategy.matrix 必须是映射，数组要包在 include 里；包格式由构建树决定，这里只传版本
+          matrix="$(printf '%s\n' "${list[@]}" \
+            | jq -R -s -c '{include: (split("\n") | map(select(length > 0)) | map({version: .}))}')"
 
           echo "矩阵：$matrix"
           echo "matrix=$matrix" >> "$GITHUB_OUTPUT"
@@ -108,13 +106,13 @@ jobs:
           # 新版发行版有 7zip；旧版用 p7zip-full（tar 在受限文件系统上的兜底解压）
           sudo apt-get install -y 7zip || sudo apt-get install -y p7zip-full
 
-      - name: Build luci-app-pcdn-detector (${{ matrix.version }} / ${{ matrix.ext }})
+      - name: Build luci-app-pcdn-detector (${{ matrix.version }})
         run: ./scripts/build-openwrt.sh ${{ matrix.version }} --sdk --jobs "$(nproc)"
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: luci-app-pcdn-detector-${{ matrix.version }}-${{ matrix.ext }}
+          name: luci-app-pcdn-detector-${{ matrix.version }}
           path: dist/openwrt-${{ matrix.version }}/*
           if-no-files-found: error
 
@@ -230,8 +228,8 @@ jobs:
             | 构建版本 | ${{ inputs.versions }} |
             | 提交 | `${{ github.sha }}` |
 
-            - `.ipk`：opkg 构建树（OpenWrt 23.05 及更早）
-            - `.apk`：apk 构建树（OpenWrt 24.10 及更新）
+            - `.ipk`：opkg 构建树（21.02 ~ 24.10；24.10 的 apk 开关在上游仍标记为 BROKEN）
+            - `.apk`：apk 构建树（25.12 及更新）
             - 包为 `PKGARCH:=all`（纯脚本），可安装到任意设备架构
             - `pcdn-detect` 二进制不在本包内，请在「服务 → PCDN 检测 → 下载/更新」中按架构安装
           draft: false

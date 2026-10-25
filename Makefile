@@ -7,8 +7,8 @@
 #   - ImmortalWrt
 #
 # 包格式由构建树自动决定：
-#   - opkg 构建树（未启用 CONFIG_USE_APK，如 23.05 及更早）生成 .ipk
-#   - apk 构建树（CONFIG_USE_APK=y，如 24.10+）生成 .apk
+#   - opkg 构建树（未启用 CONFIG_USE_APK，如 23.05 / 24.10）生成 .ipk
+#   - apk 构建树（CONFIG_USE_APK=y，如 25.12 及更新）生成 .apk
 #   本 Makefile 使用标准 BuildPackage，不需要为两种格式分别维护。
 #
 # 用法（OpenWrt / Lean / ImmortalWrt 源码树）：

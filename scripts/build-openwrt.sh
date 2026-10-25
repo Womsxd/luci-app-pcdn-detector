@@ -3,11 +3,14 @@
 # 使用官方 OpenWrt 源码编译 luci-app-pcdn-detector 的 ipk / apk
 #
 # 用法：
-#   ./scripts/build-openwrt.sh <21.02|22.03|23.05|24.10|all> [--sdk] [--jobs N] [--update] [--clean]
+#   ./scripts/build-openwrt.sh <21.02|22.03|23.05|24.10|25.12|all> [--sdk] [--jobs N] [--update] [--clean]
 #
-#   21.02 / 22.03 / 23.05 -> ipk
-#   24.10                 -> apk
-#   all                   -> 依次编译 23.05(ipk) 与 24.10(apk)
+#   all                   -> 依次编译 23.05（ipk）与 25.12（apk）
+#
+# 包格式由构建树决定，脚本不做假设：
+#   - 官方 21.02 / 22.03 / 23.05 / 24.10 的 SDK 都是 opkg 构建树，产出 .ipk
+#     （24.10 的 CONFIG_USE_APK 仍标记为 BROKEN，写在 .config 里会被 defconfig 丢弃）；
+#   - 25.12 及更新默认使用 apk，产出 .apk。
 #
 # 两种模式：
 #   默认        完整官方源码，首次需编译 tools/toolchain，最慢但最接近官方发布
@@ -39,7 +42,7 @@ VERSION=""
 
 usage() {
 	cat <<EOF
-用法: $(basename "$0") <21.02|22.03|23.05|24.10|all> [选项]
+用法: $(basename "$0") <21.02|22.03|23.05|24.10|25.12|all> [选项]
 
   --sdk            使用官方 SDK（只编译包，速度最快）
   --update         更新源码树 / feeds（默认复用已有内容）
@@ -53,15 +56,15 @@ usage() {
   -h, --help       显示帮助
 
 示例:
-  ./scripts/build-openwrt.sh 24.10 --sdk   # 用官方 SDK 快速生成 apk
+  ./scripts/build-openwrt.sh 25.12 --sdk   # 用官方 SDK 快速生成 apk
   ./scripts/build-openwrt.sh 23.05 --sdk   # 用官方 SDK 快速生成 ipk
-  ./scripts/build-openwrt.sh all --sdk     # 依次生成 ipk + apk
+  ./scripts/build-openwrt.sh all --sdk     # 依次生成 ipk（23.05）与 apk（25.12）
   ./scripts/build-openwrt.sh 23.05         # 完整官方源码（首次较慢）
 
   # 国内镜像
   ./scripts/build-openwrt.sh all --sdk --mirror ustc
-  ./scripts/build-openwrt.sh 24.10 --sdk --mirror tencent
-  ./scripts/build-openwrt.sh 24.10 --sdk --mirror tencent-intra
+  ./scripts/build-openwrt.sh 25.12 --sdk --mirror tencent
+  ./scripts/build-openwrt.sh 25.12 --sdk --mirror tencent-intra
 
 可用环境变量:
   OPENWRT_GIT_URL          官方源码地址（默认 $SOURCE_URL）
@@ -163,7 +166,7 @@ done
 }
 
 case "$VERSION" in
-	21.02|22.03|23.05|24.10|all) ;;
+	21.02|22.03|23.05|24.10|25.12|all) ;;
 	*) die "不支持的版本：$VERSION" ;;
 esac
 
@@ -218,7 +221,7 @@ if [ "$NO_FALLBACK" = "0" ]; then
 fi
 
 if [ "$VERSION" = "all" ] && [ -n "$SDK_URL" ]; then
-	die "--sdk-url 不能与 all 一起使用；请分别编译 23.05 与 24.10"
+	die "--sdk-url 不能与 all 一起使用；请分别编译 23.05 / 24.10 / 25.12"
 fi
 
 for cmd in git make gcc g++ tar gzip wget find awk sed sha256sum; do
@@ -492,15 +495,10 @@ build_one() {
 	local branch="openwrt-$ver"
 	local tree=""
 	local outdir="$ROOT_DIR/dist/openwrt-$ver"
-	local ext="ipk"
-
-	if [ "$ver" = "24.10" ]; then
-		ext="apk"
-	fi
 
 	echo
 	echo "============================================================"
-	echo " 编译 luci-app-pcdn-detector for OpenWrt $ver（$ext）"
+	echo " 编译 luci-app-pcdn-detector for OpenWrt $ver"
 	echo " 模式：$MODE"
 	echo "============================================================"
 
@@ -578,8 +576,7 @@ build_one() {
 		for sym in \
 			CONFIG_PACKAGE_luci-app-pcdn-detector \
 			CONFIG_PACKAGE_luci-compat \
-			CONFIG_PACKAGE_luci-base \
-			CONFIG_USE_APK; do
+			CONFIG_PACKAGE_luci-base; do
 			sed -i "/^${sym}[= ]/d" "$cfg"
 			sed -i "/^# ${sym} is not set/d" "$cfg"
 		done
@@ -588,9 +585,6 @@ build_one() {
 			echo "CONFIG_PACKAGE_luci-app-pcdn-detector=y"
 			echo "CONFIG_PACKAGE_luci-compat=y"
 			echo "CONFIG_PACKAGE_luci-base=y"
-			if [ "$ver" = "24.10" ]; then
-				echo "CONFIG_USE_APK=y"
-			fi
 		} >> "$cfg"
 	else
 		{
@@ -600,9 +594,6 @@ build_one() {
 			echo "CONFIG_PACKAGE_luci-app-pcdn-detector=y"
 			echo "CONFIG_PACKAGE_luci-compat=y"
 			echo "CONFIG_PACKAGE_luci-base=y"
-			if [ "$ver" = "24.10" ]; then
-				echo "CONFIG_USE_APK=y"
-			fi
 		} > "$tree/.config"
 	fi
 
@@ -611,8 +602,11 @@ build_one() {
 	grep -q '^CONFIG_PACKAGE_luci-app-pcdn-detector=y' "$tree/.config" \
 		|| die "defconfig 后未选中 luci-app-pcdn-detector"
 
-	if [ "$ver" = "24.10" ] && ! grep -q '^CONFIG_USE_APK=y' "$tree/.config"; then
-		echo "警告：24.10 未启用 CONFIG_USE_APK，产物可能是 ipk" >&2
+	# 包格式由构建树决定：CONFIG_USE_APK 被 defconfig 保留才是 apk 构建树
+	if grep -q '^CONFIG_USE_APK=y' "$tree/.config"; then
+		echo "构建树使用 apk，产物为 .apk"
+	else
+		echo "构建树使用 opkg，产物为 .ipk"
 	fi
 
 	if [ "$MODE" = "source" ]; then
@@ -630,42 +624,50 @@ build_one() {
 
 	mkdir -p "$outdir"
 	find "$outdir" -maxdepth 1 -type f \( -name '*.ipk' -o -name '*.apk' \) -delete
-	find "$tree/bin/packages" -type f -name "luci-app-pcdn-detector*.$ext" \
+	# 不按预期格式查找：opkg 构建树出 ipk，apk 构建树出 apk，收到什么就是什么
+	find "$tree/bin/packages" -type f \
+		\( -name 'luci-app-pcdn-detector*.ipk' -o -name 'luci-app-pcdn-detector*.apk' \) \
 		-exec cp -f {} "$outdir/" \;
 
 	local count
-	count="$(find "$outdir" -maxdepth 1 -type f -name "*.$ext" | wc -l)"
+	count="$(find "$outdir" -maxdepth 1 -type f \( -name '*.ipk' -o -name '*.apk' \) | wc -l)"
 	if [ "$count" -eq 0 ]; then
-		die "未找到 .$ext 产物，请检查上面的编译日志"
+		echo "构建树中未找到 ipk / apk 产物，诊断信息：" >&2
+		grep -E '^CONFIG_(USE_APK|PACKAGE_luci-app-pcdn-detector)=' "$tree/.config" >&2 || true
+		find "$tree/bin/packages" -maxdepth 3 -type f -name 'luci-app-pcdn-detector*' >&2 || true
+		die "未找到 ipk / apk 产物，请检查上面的编译日志"
 	fi
 
 	echo
 	echo "构建完成，产物："
-	find "$outdir" -maxdepth 1 -type f -name "*.$ext" -print -exec ls -lh {} \;
+	find "$outdir" -maxdepth 1 -type f \( -name '*.ipk' -o -name '*.apk' \) -print -exec ls -lh {} \;
 	(
 		cd "$outdir"
-		sha256sum ./*."$ext" > SHA256SUMS
-	)
+		sha256sum ./*.ipk ./*.apk 2>/dev/null || true
+	) > "$outdir/SHA256SUMS"
+	[ -s "$outdir/SHA256SUMS" ] || die "生成 SHA256SUMS 失败"
 	echo "校验文件：$outdir/SHA256SUMS"
 }
 
 if [ "$VERSION" = "all" ]; then
 	rc=0
-	rc23=0
-	rc24=0
+	failed=""
 
 	# 子 shell 必须是独立命令（不能放在 || / if 条件里），否则会禁用 set -e；
-	# 外层先关闭 errexit，保证 23.05 失败后仍继续 24.10。
-	set +e
-	( set -e; build_one 23.05 ); rc23=$?
-	( set -e; build_one 24.10 ); rc24=$?
-	set -e
+	# 外层先关闭 errexit，保证前一个版本失败后仍继续后面的版本。
+	for v in 23.05 25.12; do
+		set +e
+		( set -e; build_one "$v" ); vrc=$?
+		set -e
 
-	[ "$rc23" -eq 0 ] || rc=1
-	[ "$rc24" -eq 0 ] || rc=1
+		if [ "$vrc" -ne 0 ]; then
+			failed="$failed $v"
+			rc=1
+		fi
+	done
 
 	if [ "$rc" -ne 0 ]; then
-		echo "提醒：部分版本构建失败，已完成的产物仍在 dist/ 下。" >&2
+		echo "提醒：以下版本构建失败：$failed ；已完成的产物仍在 dist/ 下。" >&2
 	fi
 	exit "$rc"
 else

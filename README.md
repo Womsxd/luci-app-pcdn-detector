@@ -2,7 +2,7 @@
 
 [pcdn-detector](https://github.com/womsxd/pcdn-detector) 的 LuCI 前端：在 OpenWrt 上管理 PCDN 行为检测服务。
 
-支持官方 OpenWrt（21.02+）、Lean LEDE、ImmortalWrt。同一份 `Makefile` 会根据构建树自动产出 `.ipk`（opkg）或 `.apk`（`CONFIG_USE_APK=y`，24.10+）。
+支持官方 OpenWrt（21.02+）、Lean LEDE、ImmortalWrt。同一份 `Makefile` 会根据构建树自动产出 `.ipk`（opkg，23.05 / 24.10）或 `.apk`（`CONFIG_USE_APK=y`，25.12+）。
 
 ## 功能
 
@@ -26,7 +26,7 @@ make menuconfig     # LuCI -> Applications -> luci-app-pcdn-detector
 make package/luci-app-pcdn-detector/compile V=s
 ```
 
-产物位于 `bin/packages/<arch>/luci/`：opkg 构建树为 `luci-app-pcdn-detector_*.ipk`，apk 构建树为 `luci-app-pcdn-detector-*.apk`。
+产物位于 `bin/packages/<arch>/`（`luci/` 或 noarch 包的 `base/` 子目录）：opkg 构建树为 `luci-app-pcdn-detector_*.ipk`，apk 构建树为 `luci-app-pcdn-detector-*.apk`。
 
 手动安装（`scp` 覆盖到路由器）与依赖说明见 [docs/install.md](docs/install.md)。
 

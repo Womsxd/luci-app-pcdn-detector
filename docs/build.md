@@ -4,13 +4,13 @@
 
 ```bash
 # 推荐：官方 SDK 模式，只编译包本身，速度最快
-./scripts/build-openwrt.sh 24.10 --sdk
+./scripts/build-openwrt.sh 25.12 --sdk
 ./scripts/build-openwrt.sh 23.05 --sdk
 ./scripts/build-openwrt.sh all --sdk
 
 # 完整官方源码模式（首次需要编译 tools/toolchain，较慢）
 ./scripts/build-openwrt.sh 23.05
-./scripts/build-openwrt.sh 24.10
+./scripts/build-openwrt.sh 25.12
 ```
 
 常用参数：
@@ -30,10 +30,10 @@
 - SDK 模式源码树位于 `build/sdk-<version>`；完整源码模式位于 `build/openwrt-<version>`；
 - 产物复制到 `dist/openwrt-<version>/`，并生成 `SHA256SUMS`；
 - 构建目标固定为 `x86/64`；LuCI 包是 noarch（`PKGARCH:=all`），产物可安装到任意架构；
-- `--sdk` 首次会下载约 100 MB 官方 SDK，仍建议 10 GiB 以上空闲磁盘；完整源码模式建议 20 GiB 以上；
+- `--sdk` 首次会下载约 100–250 MB 官方 SDK（版本越新越大），仍建议 10 GiB 以上空闲磁盘；完整源码模式建议 20 GiB 以上；
 - 编译依赖见下方「编译依赖」小节；SDK 模式也需要 OpenWrt 的 host 前置包，不只是 `git` / `make`；
 - 更新 feeds 需要 Perl 的 `FindBin` 模块：Fedora 若提示 `Can't locate FindBin.pm`，执行 `dnf install perl-FindBin`；Debian/Ubuntu 安装 `perl`；
-- `24.10` 通过 `CONFIG_USE_APK=y` 生成 `.apk`，其余版本生成 `.ipk`；
+- 包格式由构建树决定：`21.02` / `22.03` / `23.05` / `24.10` 的官方树都是 opkg，产出 `.ipk`（`24.10` 的 `CONFIG_USE_APK` 上游仍标记为 BROKEN，写了也会被 `defconfig` 丢弃）；`25.12` 及更新默认 apk，产出 `.apk`；`all` 依次编译 `23.05`（ipk）与 `25.12`（apk）；
 - 脚本只编译 LuCI 前端包；`pcdn-detect` 二进制由「下载/更新」安装，或按上游项目单独编译。
 
 ## 编译依赖
@@ -104,9 +104,9 @@ sudo apt install -y autoconf automake libtool bison flex \
 
 ```bash
 ./scripts/build-openwrt.sh all --sdk --mirror ustc
-./scripts/build-openwrt.sh 24.10 --sdk --mirror tencent
-./scripts/build-openwrt.sh 24.10 --sdk --mirror tencent-intra
-./scripts/build-openwrt.sh 24.10 --sdk --mirror https://mirrors.example.com/openwrt
+./scripts/build-openwrt.sh 25.12 --sdk --mirror tencent
+./scripts/build-openwrt.sh 25.12 --sdk --mirror tencent-intra
+./scripts/build-openwrt.sh 25.12 --sdk --mirror https://mirrors.example.com/openwrt
 ```
 
 预设：
@@ -133,15 +133,15 @@ OPENWRT_MIRROR=tencent-intra OPENWRT_MIRROR_FALLBACK=official \
 - 脚本会从最新补丁版开始向下查找 SDK，镜像同步不完整时会继续尝试旧补丁版；
 - 当前镜像找不到 SDK 时默认直接报错，**不会自动回退**；需要回退时显式加 `--fallback official`（或其它镜像），或设置 `OPENWRT_MIRROR_FALLBACK=official`；
 - 在受限容器 / 特殊文件系统中，`tar` 可能报 `Function not implemented`（ENOSYS）；脚本会自动改用 `7z` 重新解压（需要 `7z` / `7zz` / `7za`，xz/zst 先解成 tar），**已下载的 SDK 压缩包会保留**，直接重跑原命令即可，不需要 `--clean`；
-- USTC 镜像同时提供 `23.05.6`（ipk）与 `24.10.8`（apk）的 x86/64 SDK，适合一次构建两种格式：
+- USTC 镜像同时提供 `23.05.6`（ipk）与 `25.12.x`（apk）的 x86/64 SDK，适合一次构建两种格式：
 
   ```bash
   ./scripts/build-openwrt.sh all --sdk --mirror ustc
   ```
 
-- 腾讯云镜像当前对 24.10 / 25.12 提供完整 SDK，但 `23.05` 的 `targets/x86/64` 未同步：
+- 腾讯云镜像当前对 25.12 提供完整 SDK，但 `23.05` 的 `targets/x86/64` 未同步：
   - 默认 `all --sdk --mirror tencent-intra` 的 23.05 会直接报错；需要回退时加 `--fallback official`；
-  - 纯内网无法访问官方源时，23.05 需要提供可用的 SDK 地址（`--sdk-url`）或改用完整源码模式；24.10 仍会继续构建，不会因 23.05 失败而中断。
+  - 纯内网无法访问官方源时，23.05 需要提供可用的 SDK 地址（`--sdk-url`）或改用完整源码模式；25.12 仍会继续构建，不会因 23.05 失败而中断。
 
 ## 更快的开发方式
 
