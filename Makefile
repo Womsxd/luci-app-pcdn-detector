@@ -71,6 +71,9 @@ define Package/luci-app-pcdn-detector/postinst
 #!/bin/sh
 if [ -z "$${IPKG_INSTROOT}" ]; then
 	/etc/init.d/pcdn-detector enable >/dev/null 2>&1
+	# conffile 冲突时 opkg 会把新默认配置写成 <文件>-opkg；以用户现有配置为准，
+	# 删除副本，避免 /etc/config 下堆积无用文件。
+	rm -f /etc/config/pcdn-detector-opkg
 	rm -f /tmp/luci-indexcache
 	rm -rf /tmp/luci-modulecache
 fi
@@ -79,20 +82,43 @@ endef
 
 define Package/luci-app-pcdn-detector/prerm
 #!/bin/sh
-if [ -z "$${IPKG_INSTROOT}" ]; then
-	# 服务未运行时 procd/ubus 会返回 NOT_FOUND；这里必须兜住，
-	# 否则 opkg 会打印 "Command failed: Not found" 并中断卸载。
-	if [ -x /etc/init.d/pcdn-detector ]; then
-		/etc/init.d/pcdn-detector stop >/dev/null 2>&1 || true
-		/etc/init.d/pcdn-detector disable >/dev/null 2>&1 || true
-	fi
-	if command -v uci >/dev/null 2>&1; then
-		uci -q batch <<-EOF >/dev/null 2>&1 || true
-			delete ucitrack.@pcdn-detector[-1]
-			commit ucitrack
-		EOF
-	fi
+# opkg 会把本脚本的 stdout/stderr 当作错误信息展示，统一丢弃。
+# 本文件由 default_prerm 在子 shell 中 source；它随后还会自行执行
+# init 脚本的 stop，那段输出由 init 脚本在 stop 时丢弃 stderr。
+exec >/dev/null 2>&1
+
+[ -n "$${IPKG_INSTROOT}" ] && exit 0
+
+if [ -x /etc/init.d/pcdn-detector ]; then
+	/etc/init.d/pcdn-detector stop || true
+	/etc/init.d/pcdn-detector disable || true
 fi
+
+if command -v uci >/dev/null 2>&1; then
+	uci -q batch <<-EOF || true
+		delete ucitrack.@pcdn-detector[-1]
+		commit ucitrack
+	EOF
+fi
+
+# 不能在这里删 conffile：opkg 随后还要计算它的 sha256，
+# 文件提前消失会报 "file_sha256sum_alloc: Failed to open file ..."。
+# 删除动作交给 postrm。
+exit 0
+endef
+
+define Package/luci-app-pcdn-detector/postrm
+#!/bin/sh
+# 卸载完成后再删 UCI 配置：prerm 阶段删除会让 opkg 处理 conffile 时报
+# "file_sha256sum_alloc: Failed to open file ..."。
+# 升级（PKG_UPGRADE=1）保留用户设置。
+[ -n "$${IPKG_INSTROOT}" ] && exit 0
+
+if [ "$${PKG_UPGRADE}" != "1" ]; then
+	rm -f /etc/config/pcdn-detector
+	rm -f /etc/config/pcdn-detector-opkg
+fi
+
 exit 0
 endef
 

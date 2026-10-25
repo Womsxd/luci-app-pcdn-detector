@@ -424,24 +424,6 @@ rm -f /tmp/pcdn-detect.version
 
 新版已修复：缓存 key 包含 `mtime | ctime | mode`，且只缓存匹配版本号的输出，错误信息不再写入缓存。
 
-**`opkg remove luci-app-pcdn-detector` 报 `Command failed: Not found`**
-
-OpenWrt 的 `default_prerm` 会遍历包内的 `/etc/init.d/*` 并执行 `stop`。服务当前未注册到 procd 时，`ubus call service delete` 返回 `NOT_FOUND`，ubus CLI 打印 `Command failed: Not found`；`default_prerm` 没有重定向这条输出。
-
-新版做了两层处理：
-
-- init 脚本覆盖 `procd_kill`，静默处理不存在的服务；
-- `prerm-pkg` 中的 stop/disable 全部加 `|| true` 和输出重定向。
-
-临时卸载旧包：
-
-```bash
-mv /usr/lib/opkg/info/luci-app-pcdn-detector.prerm /tmp/
-opkg remove luci-app-pcdn-detector
-```
-
-删除后重新安装新包即可。
-
 **LuCI 菜单不显示 / 页面空白**
 
 - 21.02+ 未安装 `luci-compat` 时会出现该问题；通过 opkg/apk 正常安装本包会自动拉取，手动安装请先执行 `opkg install luci-compat` 或 `apk add luci-compat`；

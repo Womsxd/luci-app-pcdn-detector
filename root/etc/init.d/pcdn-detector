@@ -9,14 +9,13 @@
 
 USE_PROCD=1
 
-# default_prerm 在卸载时会直接执行 "/etc/init.d/pcdn-detector stop"。
-# 服务未注册到 procd 时，ubus call service delete 返回 NOT_FOUND，
-# 会打印 "Command failed: Not found"；这里静默处理。
-procd_kill() {
-	if command -v _procd_kill >/dev/null 2>&1; then
-		_procd_kill "$@" >/dev/null 2>&1 || true
-	fi
-}
+# opkg 的 default_prerm 卸载时会直接执行 "/etc/init.d/pcdn-detector stop"，
+# 且不重定向输出；rc.common 在本脚本之后才加载 procd.sh，脚本内覆盖
+# _procd_kill 会被它重新定义。因此 stop 期间直接丢弃 stderr：
+# 服务未注册到 procd 时 ubus 会打印 "Command failed: Not found"。
+if [ "$action" = "stop" ]; then
+	exec 2>/dev/null
+fi
 
 START=99
 STOP=01
