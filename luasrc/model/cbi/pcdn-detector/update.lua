@@ -21,4 +21,9 @@ o.placeholder = "https://github.com/Womsxd/pcdn-detector/releases/latest/downloa
 o.datatype = "string"
 o.description = translate("留空使用 GitHub Release 地址；使用镜像时可改为镜像的 releases/latest/download 前缀，或直接在上方填写完整地址。")
 
+o = s:option(Flag, "allow_overwrite", translate("空间不足时覆盖安装"))
+o.default = 0
+o.rmempty = false
+o.description = translate("默认关闭。仅当目标分区（16 MiB）与 /tmp（24 MiB）空间都不足时生效：先删除旧程序再下载新版本，因此更新失败将无法自动回滚。")
+
 return m

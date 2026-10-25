@@ -1086,6 +1086,41 @@ local function detect_arch()
 	return target, arch
 end
 
+-- 目标分区 / /tmp 的剩余空间与下载方式由 update.sh --space 统一判定：
+-- 阈值只在脚本里维护，避免前端与脚本各写一套；这里只做桥接，
+-- 供页面显示剩余空间，并在下载前拦掉必然失败的请求。
+local function probe_space(bin)
+	if not fs.access(UPDATE_SCRIPT) then
+		return nil
+	end
+
+	local out = util.exec(string.format("%s --space %s 2>/dev/null",
+		util.q(UPDATE_SCRIPT), util.q(bin or bin_path())))
+	local res = {}
+
+	for k, v in out:gmatch("([%w_]+)=(%S+)") do
+		res[k] = tonumber(v) or v
+	end
+
+	if not res.mode then
+		return nil
+	end
+
+	return res
+end
+
+local function kb_text(kb)
+	kb = tonumber(kb)
+	if not kb then
+		return "未知"
+	end
+	return util.format_bytes(kb * 1024)
+end
+
+local function allow_overwrite()
+	return uci_get("allow_overwrite", "0") == "1"
+end
+
 function action_updateinfo()
 	local arch, pkg_arch = detect_arch()
 	local repo = uci_get("repo", DEFAULT_REPO)
@@ -1099,6 +1134,7 @@ function action_updateinfo()
 	local asset = "pcdn-detect-" .. arch
 	local current = util.version_of(bin_path())
 	local current_base, current_build = util.version_parts(current)
+	local space = probe_space(bin_path())
 
 	reply_json({
 		ok = true,
@@ -1115,6 +1151,13 @@ function action_updateinfo()
 		has_curl = fs.access("/usr/bin/curl") or fs.access("/bin/curl") or false,
 		has_wget = fs.access("/usr/bin/wget") or fs.access("/bin/wget") or false,
 		script_exists = fs.access(UPDATE_SCRIPT) and true or false,
+		-- space_mode：tmp（/tmp 充足，优先）/ direct（写目标分区）/ overwrite（两者都不足）
+		space_mode = space and space.mode or nil,
+		dir_free_kb = space and space.dir_kb or nil,
+		tmp_free_kb = space and space.tmp_kb or nil,
+		dir_min_kb = space and space.dir_min_kb or nil,
+		tmp_min_kb = space and space.tmp_min_kb or nil,
+		allow_overwrite = allow_overwrite(),
 	})
 end
 
@@ -1168,8 +1211,26 @@ function action_doupdate()
 		return
 	end
 
-	sys.call(string.format("%s %s %s >/dev/null 2>&1 &",
-		util.q(UPDATE_SCRIPT), util.q(url), util.q(bin)))
+	local allow = allow_overwrite()
+
+	-- 目标分区与 /tmp 都不足、且未允许覆盖安装时直接拒绝：
+	-- 避免起一个注定失败的后台任务，也避免用户只看到“更新失败”。
+	local space = probe_space(bin)
+	if space and space.mode == "overwrite" and not allow then
+		reply_json({
+			ok = false,
+			message = string.format(
+				"空间不足：%s 剩余 %s（需要 %s），/tmp 剩余 %s（需要 %s）。请清理空间，或在下方开启「空间不足时覆盖安装」。",
+				util.dirname(bin) ~= "" and util.dirname(bin) or "/",
+				kb_text(space.dir_kb), kb_text(space.dir_min_kb),
+				kb_text(space.tmp_kb), kb_text(space.tmp_min_kb)),
+		})
+		return
+	end
+
+	-- 第 3 个参数：空间不足时是否允许先删除旧程序再下载（0/1）
+	sys.call(string.format("%s %s %s %s >/dev/null 2>&1 &",
+		util.q(UPDATE_SCRIPT), util.q(url), util.q(bin), allow and "1" or "0"))
 
 	reply_json({ ok = true, message = "已开始下载，请稍候…" })
 end

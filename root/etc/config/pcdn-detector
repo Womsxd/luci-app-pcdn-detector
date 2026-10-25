@@ -18,3 +18,8 @@ config pcdn-detector 'main'
 	# 可选：完整覆盖下载地址前缀（如使用镜像 / 私有地址）
 	# 留空时使用 https://github.com/<repo>/releases/latest/download
 	option download_base ''
+
+	# 空间不足时是否允许覆盖安装（默认关闭）：
+	# 目标分区 < 16 MiB 且 /tmp < 24 MiB 时才生效，会先删除旧程序再下载，
+	# 因此更新失败将无法自动回滚。
+	option allow_overwrite '0'

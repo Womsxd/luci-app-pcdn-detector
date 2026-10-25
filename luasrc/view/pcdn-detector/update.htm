@@ -66,6 +66,10 @@
 		<span>下载工具</span>
 		<strong id="pcdn-up-tool" style="font-size:13px;">—</strong>
 	</div>
+	<div class="pcdn-up-item">
+		<span>剩余空间（目标 / tmp）</span>
+		<strong id="pcdn-up-space" style="font-size:12px;">—</strong>
+	</div>
 </div>
 
 <p class="cbi-value-description">
@@ -151,6 +155,34 @@
 
 	function $(id) { return document.getElementById(id); }
 
+	function fmtKB(kb) {
+		kb = Number(kb || 0);
+		if (!(kb > 0)) return '0';
+		var units = ['KiB', 'MiB', 'GiB'];
+		var i = 0;
+		while (kb >= 1024 && i < units.length - 1) { kb /= 1024; i++; }
+		return (i === 0 ? kb.toFixed(0) : kb.toFixed(1)) + ' ' + units[i];
+	}
+
+	// 下载方式由后端（update.sh --space）统一判定：
+	//   tmp       /tmp 充足：下载到内存再复制到目标目录（优先，不写闪存）
+	//   direct    /tmp 不足：直接下载到目标目录，同分区 rename
+	//   overwrite 两者都不足：需要开启「空间不足时覆盖安装」
+	function renderSpace(d) {
+		var el = $('pcdn-up-space');
+		if (!el) return;
+
+		if (!d.space_mode) {
+			el.textContent = '未知';
+			el.title = '';
+			return;
+		}
+
+		el.textContent = fmtKB(d.dir_free_kb) + ' / ' + fmtKB(d.tmp_free_kb);
+		el.title = '阈值：目标目录 ' + fmtKB(d.dir_min_kb) + '，/tmp ' + fmtKB(d.tmp_min_kb)
+			+ '\n当前方式：' + d.space_mode;
+	}
+
 	function showMsg(text, ok) {
 		var el = $('pcdn-up-msg');
 		el.textContent = text || '';
@@ -165,10 +197,10 @@
 		if (follow) el.scrollTop = el.scrollHeight;
 	}
 
-	function loadInfo() {
+	function loadInfo(quiet) {
 		XHR.get(U.info, null, function(x, d) {
 			if (!d || !d.ok) {
-				showMsg('无法读取更新信息', false);
+				if (!quiet) showMsg('无法读取更新信息', false);
 				return;
 			}
 
@@ -181,6 +213,8 @@
 			$('pcdn-up-bin').textContent = d.bin_path || '—';
 			$('pcdn-up-tool').textContent = d.has_curl ? 'curl' : (d.has_wget ? 'wget' : '缺失');
 
+			renderSpace(d);
+
 			if (!urlEdited || !$('pcdn-up-url').value) {
 				$('pcdn-up-url').value = d.url || '';
 			}
@@ -188,12 +222,19 @@
 			var gh = 'https://github.com/' + (d.repo || '');
 			$('pcdn-up-github').href = gh + '/releases';
 
+			// quiet：更新完成后刷新信息时不要覆盖“更新完成/更新失败”的提示
+			if (quiet) return;
+
 			if (!d.has_curl && !d.has_wget) {
 				showMsg('系统缺少 curl 与 wget，无法下载。', false);
 			} else if (!d.script_exists) {
 				showMsg('缺少更新脚本 /usr/share/pcdn-detector/update.sh，请重新安装本 LuCI 应用。', false);
 			} else if (d.arch === 'unknown') {
 				showMsg('无法识别设备架构，请手动填写正确的 Release 资源地址。', false);
+			} else if (d.space_mode === 'overwrite' && !d.allow_overwrite) {
+				showMsg('空间不足：目标分区与 /tmp 都不够，且未开启「空间不足时覆盖安装」。请清理空间，或在页面下方开启该开关。', false);
+			} else if (d.space_mode === 'overwrite') {
+				showMsg('空间不足：将先删除旧程序再下载，更新失败无法回滚。', false);
 			}
 		});
 	}
@@ -216,7 +257,7 @@
 				var failed = (d.log || '').indexOf('更新失败') >= 0;
 				setProgress((d.log || '') + '\n\n任务已结束。');
 				showMsg(failed ? '更新失败，详见上方输出。' : '更新完成，请查看上方输出确认版本。', !failed);
-				loadInfo();
+				loadInfo(true);
 			}
 		});
 	}

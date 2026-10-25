@@ -10,7 +10,7 @@
 - **配置编辑**：完整 TOML 文本编辑，像编辑 txt 文件一样直接改全文，保留注释、黑白名单与未知配置项；保存时把完整文件发回后端，后端不解析，只做校验与保存。支持 Ctrl/Cmd+S。
 - **在线校验与热重载**：保存前调用 `pcdn-detect -T` 校验，失败不落盘；成功后发送 SIGHUP 原地生效，不重启进程、不丢失封禁状态。
 - **日志**：从 `logread` 中按 syslog tag 精确筛选 (不是简单的正文匹配)，支持等级、关键词、行数、自动刷新、暂停与下载。
-- **下载 / 更新**：按设备架构推导 GitHub Release 资源地址，也可填写任意 http(s) 直链（需为未压缩的 ELF 二进制）；安装后执行 `-v` 自检，失败自动回滚旧版本。
+- **下载 / 更新**：按设备架构推导 GitHub Release 资源地址，也可填写任意 http(s) 直链（需为未压缩的 ELF 二进制）；按剩余空间选择下载位置（`/tmp` 优先，其次目标分区）；安装后执行 `-v` 自检，失败自动回滚旧版本，成功后清理临时文件与备份。
 
 ## 目录结构
 
@@ -283,7 +283,7 @@ OPENWRT_MIRROR=tencent-intra OPENWRT_MIRROR_FALLBACK=official \
 
 | 层 | 文件 | 内容 |
 | --- | --- | --- |
-| UCI | `/etc/config/pcdn-detector` | 开机自启、配置文件路径、二进制路径、附加命令行参数、下载源 |
+| UCI | `/etc/config/pcdn-detector` | 开机自启、配置文件路径、二进制路径、附加命令行参数、下载源、空间不足时覆盖安装 |
 | TOML | `/etc/pcdn-detect/pcdn-detect.toml` | pcdn-detect 自身的全部配置（检测、抓包、内存、日志、HTTP、黑白名单、防火墙、UPnP）；首次使用时由程序生成 |
 
 - 仓库与安装包 **不包含 TOML 文件**。缺少配置时，服务启动脚本或 LuCI 会在临时目录执行
@@ -337,7 +337,15 @@ OPENWRT_MIRROR=tencent-intra OPENWRT_MIRROR_FALLBACK=official \
 
 架构识别顺序：`opkg print-architecture`（opkg 系统）→ `apk --print-arch`（apk 系统，24.10+）→ `uname -m` 兜底。
 
-安装流程：下载到 `/tmp` → 校验文件大小与 ELF 头 → 备份原文件 → 覆盖安装 → 执行 `-v` 自检 → 失败自动回滚 → 成功后重启服务。进度输出位于 `/tmp/pcdn-detect-update.log`。
+安装流程按剩余空间选择下载位置（阈值由 `update.sh` 统一判定，页面会显示目标分区与 `/tmp` 的剩余空间）：
+
+| 方式 | 条件 | 行为 |
+| --- | --- | --- |
+| `tmp` | `/tmp` ≥ 24 MiB | 下载到 `/tmp`（tmpfs，下载期间占用内存），复制到目标目录后立刻删除 |
+| `direct` | `/tmp` < 24 MiB 且目标分区 ≥ 16 MiB | 下载到目标目录下的临时文件，同分区 `rename` 覆盖：不占内存，替换是原子的 |
+| `overwrite` | 两者都不足 | 先删除旧程序再下载；需在「下载/更新 → 下载源」开启「空间不足时覆盖安装」，更新失败无法回滚 |
+
+无论哪种方式，下载后都会校验文件大小与 ELF 头 → 备份原文件（`rename` 到 `pcdn-detect.bak`，不额外占用闪存）→ 覆盖安装 → 执行 `-v` 自检 → 失败自动回滚 → 成功则删除临时文件与 `.bak` → 重启服务。若上次更新被中断（只剩 `.bak`），下次运行会先自动恢复。进度输出位于 `/tmp/pcdn-detect-update.log`。
 
 > `-v` 输出为 SemVer，git 短哈希作为 build metadata：`0.0.1-alpha+c6d101c`（早期格式为 `0.0.1-alpha-c6d101c`）。
 > 概览页与下载页把主版本与构建号分开显示，完整字符串保留在鼠标悬停提示中。
