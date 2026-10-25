@@ -138,6 +138,7 @@
 		<div class="pcdn-item">
 			<span class="pcdn-label">版本</span>
 			<span id="pcdn-version" class="pcdn-value">—</span>
+			<span id="pcdn-version-build" class="pcdn-value pcdn-muted" style="font-size:12px;"></span>
 		</div>
 		<div class="pcdn-item">
 			<span class="pcdn-label">PID / 运行时长</span>
@@ -324,7 +325,9 @@
 			run.textContent = d.running ? '运行中' : '已停止';
 			run.className = 'pcdn-value ' + (d.running ? 'pcdn-ok' : 'pcdn-bad');
 
-			setText('pcdn-version', d.version || '未知');
+			setText('pcdn-version', d.version_base || d.version || '未知');
+			setText('pcdn-version-build', d.version_build ? ('构建 ' + d.version_build) : '');
+			$('pcdn-version').title = d.version || '';
 			setText('pcdn-pid', d.pid || '—');
 			setText('pcdn-uptime', d.uptime_text || '—');
 			setText('pcdn-iface', d.interface || '未配置');

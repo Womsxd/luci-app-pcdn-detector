@@ -338,6 +338,9 @@ OPENWRT_MIRROR=tencent-intra OPENWRT_MIRROR_FALLBACK=official \
 
 安装流程：下载到 `/tmp` → 校验文件大小与 ELF 头 → 备份原文件 → 覆盖安装 → 执行 `-v` 自检 → 失败自动回滚 → 成功后重启服务。进度输出位于 `/tmp/pcdn-detect-update.log`。
 
+> `-v` 输出为 SemVer，git 短哈希作为 build metadata：`0.0.1-alpha+c6d101c`（早期格式为 `0.0.1-alpha-c6d101c`）。
+> 概览页与下载页把主版本与构建号分开显示，完整字符串保留在鼠标悬停提示中。
+
 ## 日志说明
 
 pcdn-detect 输出到 stdout，由 procd（`stdout 1`）写入系统日志，tag 为二进制文件名：

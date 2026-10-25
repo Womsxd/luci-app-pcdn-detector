@@ -174,7 +174,9 @@
 
 			info = d;
 
-			$('pcdn-up-version').textContent = d.current || '未知（未安装或无法执行）';
+			$('pcdn-up-version').textContent = (d.current_base || d.current || '未知（未安装或无法执行）')
+				+ (d.current_build ? (' + ' + d.current_build) : '');
+			$('pcdn-up-version').title = d.current || '';
 			$('pcdn-up-arch').textContent = (d.arch || '未知') + (d.pkg_arch ? '（' + d.pkg_arch + '）' : '');
 			$('pcdn-up-bin').textContent = d.bin_path || '—';
 			$('pcdn-up-tool').textContent = d.has_curl ? 'curl' : (d.has_wget ? 'wget' : '缺失');

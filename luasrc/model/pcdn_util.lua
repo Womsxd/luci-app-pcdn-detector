@@ -255,6 +255,18 @@ function M.version_of(bin)
 	return nil
 end
 
+-- 拆分 -v 输出：上游为 SemVer，git 短哈希作为 build metadata 跟在 '+' 之后
+-- （如 0.0.1-alpha+c6d101c；早期格式为 0.0.1-alpha-c6d101c，此处按原样返回）。
+-- 构建信息不参与版本比较，页面把主版本与构建号分开显示。
+function M.version_parts(ver)
+	ver = M.trim(ver)
+	local base, build = ver:match("^([^+]+)%+(.+)$")
+	if base and base ~= "" then
+		return base, build
+	end
+	return ver, nil
+end
+
 ---------------------------------------------------------------------------
 -- 格式化
 ---------------------------------------------------------------------------

@@ -394,6 +394,9 @@ function action_status()
 	local vals = read_values()
 	local http_cfg = http_settings(vals)
 	local uptime = pid and util.uptime_of(pid) or nil
+	local version = util.version_of(bin)
+	-- 上游 -v 输出版本 + SemVer build metadata（0.0.1-alpha+<hash>）
+	local version_base, version_build = util.version_parts(version)
 
 	reply_json({
 		ok = true,
@@ -401,7 +404,9 @@ function action_status()
 		pid = pid and tonumber(pid) or nil,
 		uptime = uptime,
 		uptime_text = uptime and util.format_duration(uptime) or nil,
-		version = util.version_of(bin),
+		version = version,
+		version_base = version_base,
+		version_build = version_build,
 		enabled = uci_get("enabled", "0") == "1",
 		bin_path = bin,
 		bin_exists = fs.access(bin) and true or false,
@@ -1076,6 +1081,8 @@ function action_updateinfo()
 	base = base:gsub("/+$", "")
 
 	local asset = "pcdn-detect-" .. arch
+	local current = util.version_of(bin_path())
+	local current_base, current_build = util.version_parts(current)
 
 	reply_json({
 		ok = true,
@@ -1085,7 +1092,9 @@ function action_updateinfo()
 		base = base,
 		asset = asset,
 		url = base .. "/" .. asset,
-		current = util.version_of(bin_path()),
+		current = current,
+		current_base = current_base,
+		current_build = current_build,
 		bin_path = bin_path(),
 		has_curl = fs.access("/usr/bin/curl") or fs.access("/bin/curl") or false,
 		has_wget = fs.access("/usr/bin/wget") or fs.access("/bin/wget") or false,
