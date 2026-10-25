@@ -143,10 +143,17 @@ local function read_config()
 	return content, path
 end
 
+-- 状态页 / 统计只关心这几个键：按需解析，不建整棵 TOML 表
+local WANTED_KEYS = {
+	http = { enabled = true, listen = true, token = true },
+	capture = { interface = true, protocol = true },
+	log = { level = true },
+}
+
 -- 只读用途：状态页与 HTTP 统计读取少量字段；配置编辑不经过这里
 local function read_values()
 	local content = read_config()
-	return toml.read(content)
+	return toml.read(content, WANTED_KEYS)
 end
 
 -- 从 [http] 段提取监听地址、端口、token（只读）
@@ -376,7 +383,7 @@ default_config_text = function()
 		return nil, err
 	end
 
-	local iface = toml.get(toml.read(fs.readfile(config_path()) or ""), "capture", "interface")
+	local iface = toml.get(toml.read(fs.readfile(config_path()) or "", WANTED_KEYS), "capture", "interface")
 	if not iface or iface == "" then
 		iface = "br-lan"
 	end
