@@ -28,6 +28,63 @@ function M.dirname(path)
 	return tostring(path or ""):match("^(.*)/[^/]*$") or ""
 end
 
+---------------------------------------------------------------------------
+-- 文本行
+---------------------------------------------------------------------------
+
+-- 逐行扫描 raw，返回 keep(line) 为真的最后 max_lines 行。
+-- 固定长度环形缓冲：只保留结果行，不复制输入，也不保留被过滤掉的行。
+function M.last_lines(raw, max_lines, keep)
+	raw = raw or ""
+	max_lines = tonumber(max_lines) or 0
+	if max_lines < 1 then
+		return {}
+	end
+
+	local ring = {}
+	local count = 0
+	local head = 0
+
+	local function push(line)
+		head = head % max_lines + 1
+		ring[head] = line
+		if count < max_lines then
+			count = count + 1
+		end
+	end
+
+	local pos = 1
+	while pos <= #raw do
+		local e = raw:find("\n", pos, true)
+		local line
+
+		if e then
+			line = raw:sub(pos, e - 1)
+			pos = e + 1
+		else
+			line = raw:sub(pos)
+			pos = #raw + 1
+		end
+
+		if not keep or keep(line) then
+			push(line)
+		end
+	end
+
+	if count == 0 then
+		return {}
+	end
+
+	local first = count < max_lines and 1 or (head % max_lines + 1)
+	local out = {}
+
+	for i = 1, count do
+		out[i] = ring[(first - 1 + i - 1) % max_lines + 1]
+	end
+
+	return out
+end
+
 function M.exec(cmd)
 	return (sys.exec(cmd or "") or ""):gsub("%s+$", "")
 end

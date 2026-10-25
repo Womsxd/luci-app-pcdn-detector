@@ -1063,53 +1063,49 @@ function action_getlog()
 	local from_file = logfile ~= "" and fs.access(logfile) and true or false
 	local raw
 
+	-- 先在 shell 侧截断：logread 的环形缓冲、/var/log/messages 都可能很大，
+	-- 没必要整份读进 Lua 再筛
+	local want = max_lines * 4
+
 	if from_file then
-		raw = util.exec("tail -n " .. tostring(max_lines * 4) .. " " .. util.q(logfile) .. " 2>/dev/null")
+		raw = util.exec("tail -n " .. tostring(want) .. " " .. util.q(logfile) .. " 2>/dev/null")
 	else
-		raw = util.exec("logread 2>/dev/null")
+		raw = util.exec("logread 2>/dev/null | tail -n " .. tostring(want))
 		if raw == "" then
-			raw = util.exec("cat /var/log/messages 2>/dev/null")
+			raw = util.exec("tail -n " .. tostring(want) .. " /var/log/messages 2>/dev/null")
 		end
 	end
 
-	local filtered = {}
 	-- procd 用 basename(command[0]) 作为 stdout 日志的 tag
 	local expected_tag = util.basename(bin_path())
 
-	for line in (raw .. "\n"):gmatch("([^\n]*)\n") do
-		local keep = true
-
+	local function keep(line)
 		if not from_file then
 			-- 只保留本服务的 syslog tag 记录：
 			--   格式：Sat Oct 24 ... daemon.info pcdn-detect[123]: 消息
 			-- 不能简单匹配消息正文，否则正文里出现 pcdn-detect 的其它进程日志也会被带出来。
 			local tag = line:match("[%a]+%.%a+%s+([%w%._%-]+)%[?%d*%]?:")
-			keep = (tag == expected_tag or tag == "pcdn-detect")
+			if tag ~= expected_tag and tag ~= "pcdn-detect" then
+				return false
+			end
 		end
 
-		if keep and level ~= "" and level ~= "all" then
-			keep = log_level_of(line, from_file) == level
+		if level ~= "" and level ~= "all" and log_level_of(line, from_file) ~= level then
+			return false
 		end
 
-		if keep and keyword_l ~= "" then
-			keep = line:lower():find(keyword_l, 1, true) ~= nil
+		if keyword_l ~= "" then
+			-- 先按原串匹配：命中就不必再生成一份小写副本
+			if not line:find(keyword, 1, true) then
+				return line:lower():find(keyword_l, 1, true) ~= nil
+			end
 		end
 
-		if keep then
-			filtered[#filtered + 1] = line
-		end
+		return true
 	end
 
-	local start = #filtered - max_lines + 1
-	if start < 1 then
-		start = 1
-	end
-
-	local out = {}
-	for i = start, #filtered do
-		out[#out + 1] = filtered[i]
-	end
-
+	-- 环形缓冲只保留最后 max_lines 行，去掉 filtered / out 两次整表拷贝
+	local out = util.last_lines(raw, max_lines, keep)
 	reply_text(table.concat(out, "\n") .. (#out > 0 and "\n" or ""))
 end
 
