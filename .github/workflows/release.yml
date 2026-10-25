@@ -1,0 +1,243 @@
+name: Release
+
+# 手动触发：用官方 SDK 打包 ipk / apk，从 Makefile 读取版本号后创建 Tag 与 Release
+on:
+  workflow_dispatch:
+    inputs:
+      versions:
+        description: '要构建的 OpenWrt 版本，空格分隔（可填 all 或 21.02 / 22.03 / 23.05 / 24.10，其中 24.10 产出 apk）'
+        required: false
+        default: '23.05 24.10'
+        type: string
+      publish:
+        description: '构建成功后创建 Git Tag 与 GitHub Release'
+        required: false
+        default: true
+        type: boolean
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  # 把输入的版本列表转换成构建矩阵
+  prepare:
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.matrix.outputs.matrix }}
+
+    steps:
+      - name: Build matrix
+        id: matrix
+        env:
+          VERSIONS: ${{ inputs.versions }}
+        run: |
+          set -euo pipefail
+
+          # all = 23.05（ipk）+ 24.10（apk），与 scripts/build-openwrt.sh 的约定一致
+          versions=()
+          for v in $VERSIONS; do
+            if [ "$v" = "all" ]; then
+              versions+=(23.05 24.10)
+            else
+              versions+=("$v")
+            fi
+          done
+
+          pairs=()
+          for v in "${versions[@]}"; do
+            case "$v" in
+              21.02|22.03|23.05) ext=ipk ;;
+              24.10) ext=apk ;;
+              *)
+                echo "::error::不支持的 OpenWrt 版本：$v"
+                exit 1
+                ;;
+            esac
+            pairs+=("$v|$ext")
+          done
+
+          if [ ${#pairs[@]} -eq 0 ]; then
+            echo "::error::versions 为空，请至少指定一个版本"
+            exit 1
+          fi
+
+          matrix="$(printf '%s\n' "${pairs[@]}" \
+            | jq -R -s -c 'split("\n") | map(select(length > 0)) | map(split("|") | {version: .[0], ext: .[1]})')"
+
+          echo "矩阵：$matrix"
+          echo "matrix=$matrix" >> "$GITHUB_OUTPUT"
+
+  build:
+    needs: prepare
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.prepare.outputs.matrix) }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # SDK 模式解压 + 编译约需 10 GiB，先清理 runner 上占用较大的预装组件
+      - name: Free disk space
+        run: |
+          set -euo pipefail
+          sudo rm -rf \
+            /usr/share/dotnet \
+            /usr/local/lib/android \
+            /opt/ghc \
+            /opt/hostedtoolcache/CodeQL \
+            /usr/local/share/boost \
+            /usr/local/graalvm
+          sudo apt-get clean
+          df -h /
+
+      - name: Install build dependencies
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential git make gcc g++ tar gzip wget curl ca-certificates \
+            xz-utils zstd rsync patch unzip bzip2 diffutils findutils gawk grep \
+            sed coreutils file debianutils util-linux bash jq \
+            libncurses-dev libc6-dev gettext python3 perl cmake ninja-build
+          # 新版发行版有 7zip；旧版用 p7zip-full（tar 在受限文件系统上的兜底解压）
+          sudo apt-get install -y 7zip || sudo apt-get install -y p7zip-full
+
+      - name: Build luci-app-pcdn-detector (${{ matrix.version }} / ${{ matrix.ext }})
+        run: ./scripts/build-openwrt.sh ${{ matrix.version }} --sdk --jobs "$(nproc)"
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: luci-app-pcdn-detector-${{ matrix.version }}-${{ matrix.ext }}
+          path: dist/openwrt-${{ matrix.version }}/*
+          if-no-files-found: error
+
+  # softprops/action-gh-release@v3 需要 contents: write 创建 release
+  release:
+    needs: [prepare, build]
+    if: inputs.publish
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # 获取所有历史记录，用于 tag 检查
+
+      - name: Download artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          merge-multiple: true
+
+      - name: Extract version from Makefile
+        id: extract_version
+        run: |
+          set -euo pipefail
+
+          VERSION="$(sed -n 's/^PKG_VERSION:=//p' Makefile | head -n 1)"
+          RELEASE="$(sed -n 's/^PKG_RELEASE:=//p' Makefile | head -n 1)"
+
+          if [ -z "$VERSION" ] || [ -z "$RELEASE" ]; then
+            echo "::error::无法从 Makefile 读取 PKG_VERSION / PKG_RELEASE"
+            exit 1
+          fi
+
+          # 版本号以 v 开头用于 tag
+          case "$VERSION" in
+            v*) TAG="$VERSION" ;;
+            *) TAG="v$VERSION" ;;
+          esac
+
+          echo "包版本：$VERSION-$RELEASE，Tag：$TAG"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "release=$RELEASE" >> "$GITHUB_OUTPUT"
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+
+      - name: Collect packages
+        id: collect
+        run: |
+          set -euo pipefail
+
+          mkdir -p out
+          find artifacts -type f \( -name '*.ipk' -o -name '*.apk' \) -exec cp -f {} out/ \;
+
+          if [ -z "$(ls -A out)" ]; then
+            echo "::error::没有下载到任何 ipk / apk 产物"
+            exit 1
+          fi
+
+          # 各版本目录下都有同名 SHA256SUMS，合并成一份
+          (
+            cd out
+            sha256sum ./*.ipk ./*.apk 2>/dev/null || true
+          ) | sed 's#\./##' | sort -k2 > out/SHA256SUMS
+
+          # 只构建单个版本时可能没有 ipk（或没有 apk），这里只列出实际存在的文件
+          {
+            echo "files<<__EOF__"
+            for f in out/*.ipk out/*.apk out/SHA256SUMS; do
+              if [ -f "$f" ]; then
+                echo "$f"
+              fi
+            done
+            echo "__EOF__"
+          } >> "$GITHUB_OUTPUT"
+
+          ls -lh out
+          cat out/SHA256SUMS
+
+      - name: Check if tag exists
+        id: check_tag
+        run: |
+          TAG="${{ steps.extract_version.outputs.tag }}"
+          if git rev-parse -q --verify "refs/tags/$TAG" >/dev/null; then
+            echo "Tag $TAG already exists"
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+            echo "::warning::Tag $TAG already exists, skipping tag creation"
+          else
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Create Git Tag
+        if: steps.check_tag.outputs.exists == 'false'
+        run: |
+          TAG="${{ steps.extract_version.outputs.tag }}"
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git tag "$TAG"
+          git push origin "$TAG"
+          echo "Tag $TAG created successfully"
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v3
+        with:
+          tag_name: ${{ steps.extract_version.outputs.tag }}
+          name: Release ${{ steps.extract_version.outputs.tag }}
+          body: |
+            ## luci-app-pcdn-detector ${{ steps.extract_version.outputs.tag }}
+
+            | 项目 | 值 |
+            | --- | --- |
+            | 包版本 | `${{ steps.extract_version.outputs.version }}-${{ steps.extract_version.outputs.release }}` |
+            | 构建版本 | ${{ inputs.versions }} |
+            | 提交 | `${{ github.sha }}` |
+
+            - `.ipk`：opkg 构建树（OpenWrt 23.05 及更早）
+            - `.apk`：apk 构建树（OpenWrt 24.10 及更新）
+            - 包为 `PKGARCH:=all`（纯脚本），可安装到任意设备架构
+            - `pcdn-detect` 二进制不在本包内，请在「服务 → PCDN 检测 → 下载/更新」中按架构安装
+          draft: false
+          prerelease: false
+          generate_release_notes: true
+          make_latest: true
+          files: ${{ steps.collect.outputs.files }}
+          fail_on_unmatched_files: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
