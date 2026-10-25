@@ -33,6 +33,11 @@ o.rmempty = true
 o.placeholder = "-i br-lan -n 30 -t 60s"
 o.description = translate("可选，按空格拆分后追加到启动命令。命令行参数优先于 TOML 配置文件。")
 
+o = s:option(Flag, "direct_api", translate("直连后端 API（绕过 LuCI 代理）"))
+o.default = 0
+o.rmempty = false
+o.description = translate("开启后，实时统计与端口明细由浏览器直接请求 pcdn-detect 的 HTTP API，不再每次轮询都启动 Lua 进程。需要 [http] listen 监听局域网地址（如 0.0.0.0:8080）、设置 token，并把本页来源加入 [http] cors_allowed_origins；条件不满足时自动回退到 LuCI 代理。")
+
 -- 保存 UCI 后让开关立即生效（reload_config 已由 procd trigger 兜底）
 m.on_after_commit = function()
 	local cursor = require("luci.model.uci").cursor()

@@ -23,3 +23,8 @@ config pcdn-detector 'main'
 	# 目标分区 < 16 MiB 且 /tmp < 24 MiB 时才生效，会先删除旧程序再下载，
 	# 因此更新失败将无法自动回滚。
 	option allow_overwrite '0'
+
+	# 概览页是否直连 pcdn-detect 的 HTTP API（绕过 LuCI 代理，默认关闭）。
+	# 需要 [http] listen 监听局域网地址、设置 token，且 cors_allowed_origins 包含本页来源；
+	# 不满足时页面会自动回退到 LuCI 代理。
+	option direct_api '0'

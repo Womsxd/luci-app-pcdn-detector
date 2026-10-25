@@ -208,6 +208,16 @@
 	var httpEnabled = false;
 	var httpToken = '';
 
+	// 直连后端：开启后实时统计 / 端口明细由浏览器直接请求 pcdn-detect 的 HTTP API，
+	// 不再每次轮询都启动一个 Lua 代理进程；失败（跨域被拦 / 网络不通）自动回退。
+	var direct = {
+		enabled: false,
+		base: '',
+		token: '',
+		reason: '',
+		failedAt: 0
+	};
+
 	// 端口明细 / 对端 IP 均按需读取，不随汇总接口全量下发
 	var detail = null;    // { mac, family, state, limit, page }
 	var peerView = null;  // { mac, port, proto, v6, page, limit }
@@ -365,8 +375,103 @@
 				showMsg('pcdn-warn', '', true);
 			}
 
+			configureDirect(d);
 			refreshStats();
 		});
+	}
+
+	// 依据 /status 的返回决定是否直连：开关开启、地址可用、且不在失败冷却期内
+	function configureDirect(d) {
+		var base = '';
+
+		if (!d.direct_api) {
+			direct.enabled = false;
+			direct.reason = '';
+			return;
+		}
+
+		// 失败后 60 秒内不再尝试，避免 5 秒轮询反复触发跨域预检
+		if (direct.failedAt && Date.now() - direct.failedAt < 60000) {
+			direct.enabled = false;
+			return;
+		}
+
+		if (d.direct_url) {
+			base = d.direct_url;
+		} else if (d.direct_url === '' && d.http_port) {
+			// listen 绑在 0.0.0.0 / ::：用当前访问 LuCI 的主机名 + 监听端口
+			base = 'http://' + location.hostname + ':' + d.http_port;
+		}
+
+		if (!base) {
+			direct.enabled = false;
+			direct.reason = d.direct_hint || '直连地址不可用';
+			return;
+		}
+
+		direct.enabled = true;
+		direct.base = String(base).replace(/\/+$/, '');
+		direct.token = d.http_token || '';
+		direct.failedAt = 0;
+		direct.reason = '';
+	}
+
+	// 直连请求：只有浏览器层面失败（CORS / 网络 / 超时）才回退，
+	// 4xx 等业务错误照常交给调用方展示。
+	function directGet(path, params, cb) {
+		var url = direct.base + path;
+		var qs = [];
+		var k;
+
+		for (k in (params || {})) {
+			if (Object.prototype.hasOwnProperty.call(params, k)) {
+				qs.push(encodeURIComponent(k) + '=' + encodeURIComponent(params[k] == null ? '' : params[k]));
+			}
+		}
+		if (qs.length) url += '?' + qs.join('&');
+
+		var headers = { 'Accept': 'application/json' };
+		if (direct.token) headers['Authorization'] = 'Bearer ' + direct.token;
+
+		function fail() {
+			direct.enabled = false;
+			direct.failedAt = Date.now();
+			direct.reason = '直连后端失败（CORS 未放行或网络不通），已回退到 LuCI 代理；'
+				+ '请确认 [http] cors_allowed_origins 包含 ' + location.origin;
+			cb('direct');
+		}
+
+		var opts = {
+			method: 'GET',
+			headers: headers,
+			cache: 'no-store',
+			credentials: 'omit'
+		};
+
+		var timer = null;
+		var ctrl = null;
+		if (typeof AbortController !== 'undefined') {
+			ctrl = new AbortController();
+			opts.signal = ctrl.signal;
+			timer = setTimeout(function() { ctrl.abort(); }, 5000);
+		}
+
+		try {
+			fetch(url, opts).then(function(r) {
+				return r.text();
+			}).then(function(text) {
+				if (timer) clearTimeout(timer);
+				var json = null;
+				try { json = JSON.parse(text); } catch (e) {}
+				cb(null, json);
+			}).catch(function() {
+				if (timer) clearTimeout(timer);
+				fail();
+			});
+		} catch (e) {
+			if (timer) clearTimeout(timer);
+			fail();
+		}
 	}
 
 	function refreshStats() {
@@ -381,72 +486,101 @@
 			return;
 		}
 
+		if (!direct.enabled) {
+			statsViaProxy(box);
+			return;
+		}
+
+		// 直连与代理保持一致：仍然是 status + devices 两段数据
+		directGet('/api/v1/status', null, function(err, s) {
+			if (err) {
+				statsViaProxy(box);
+				return;
+			}
+
+			directGet('/api/v1/devices', null, function(err2, dv) {
+				if (err2) {
+					statsViaProxy(box);
+					return;
+				}
+
+				setHttpState('正常（直连）', 'pcdn-ok');
+				$('pcdn-http-state').title = direct.base;
+				renderStats(box, s || {}, dv || {}, null);
+			});
+		});
+	}
+
+	function statsViaProxy(box) {
 		XHR.get(U.stats, null, function(x, d) {
 			if (!d || !d.available) {
-				setHttpState('异常', 'pcdn-bad');
+				setHttpState(direct.reason ? '代理' : '异常', direct.reason ? 'pcdn-muted' : 'pcdn-bad');
 				box.innerHTML = '<p class="pcdn-muted" style="margin:0;">'
 					+ esc((d && d.message) || '无法读取实时统计')
+					+ (direct.reason ? '<br>直连不可用：' + esc(direct.reason) : '')
 					+ ' <a href="' + U.config + '">前往配置</a></p>';
 				return;
 			}
 
-			setHttpState('正常', 'pcdn-ok');
-			var s = d.status || {};
-			var dv = d.devices || {};
-			var devs = dv.devices || [];
-
-			var html = '<div class="pcdn-stats-cards">';
-			html += '<div class="pcdn-stat"><b>' + esc(s.tracked_devices || 0) + '</b><span>跟踪设备</span></div>';
-			html += '<div class="pcdn-stat"><b>' + esc(s.alerts || 0) + '</b><span>累计告警</span></div>';
-			html += '<div class="pcdn-stat"><b>' + esc(s.active_bans || 0) + '</b><span>当前封禁</span></div>';
-			html += '<div class="pcdn-stat"><b>' + esc(s.full_banned || 0) + '</b><span>全端口封禁</span></div>';
-			html += '<div class="pcdn-stat"><b>' + esc(s.upnp_blocked || 0) + '</b><span>UPnP 拦截</span></div>';
-			html += '</div>';
-
-			// 上游 /api/v1/devices 只返回设备级汇总；端口明细按需调用 /api/v1/device
-			var evictions = Number(dv.port_evictions || 0);
-			var drops = Number(dv.port_drops || 0);
-			if (evictions > 0 || drops > 0) {
-				html += '<p class="pcdn-muted" style="margin:0 0 8px;">'
-					+ '[memory] max_ports 已生效：提前过期端口 ' + evictions + ' 次，丢弃新端口报文 ' + drops + ' 次。</p>';
-			}
-
-			var rows = [];
-			for (var i = 0; i < devs.length; i++) {
-				var mac = devs[i].mac || '';
-				rows.push('<tr>'
-					+ '<td>' + esc(mac) + '</td>'
-					+ '<td>' + esc(familyText(devs[i].ipv4)) + '</td>'
-					+ '<td>' + esc(familyText(devs[i].ipv6)) + '</td>'
-					+ '<td><button type="button" class="cbi-button cbi-button-neutral pcdn-rowbtn" data-mac="'
-						+ esc(mac) + '">端口明细</button></td>'
-					+ '</tr>');
-			}
-
-			if (!rows.length) {
-				rows.push('<tr><td colspan="4" class="pcdn-empty">暂无设备统计（还没有流量，或监听网卡 / 名单配置不正确）</td></tr>');
-			}
-
-			html += '<table class="pcdn-table"><thead><tr>'
-				+ '<th>设备 MAC</th><th>IPv4 端口 / 封禁</th><th>IPv6 端口 / 封禁</th><th>操作</th>'
-				+ '</tr></thead><tbody>' + rows.join('') + '</tbody></table>';
-
-			if (d.devices_error) {
-				html += '<p class="pcdn-muted" style="margin:6px 0 0;">' + esc(d.devices_error) + '</p>';
-			} else {
-				html += '<p class="pcdn-muted" style="margin:6px 0 0;">'
-					+ '汇总接口不包含端口明细；点击「端口明细」按需读取 /api/v1/device（对端 IP 走 /api/v1/peers）。</p>';
-			}
-
-			box.innerHTML = html;
-
-			var btns = box.querySelectorAll('button[data-mac]');
-			for (var k = 0; k < btns.length; k++) {
-				btns[k].onclick = function() {
-					openDetail(this.getAttribute('data-mac'));
-				};
-			}
+			setHttpState(direct.reason ? '正常（代理）' : '正常', 'pcdn-ok');
+			renderStats(box, d.status || {}, d.devices || {}, d.devices_error || null);
 		});
+	}
+
+	function renderStats(box, s, dv, devicesError) {
+		var devs = dv.devices || [];
+
+		var html = '<div class="pcdn-stats-cards">';
+		html += '<div class="pcdn-stat"><b>' + esc(s.tracked_devices || 0) + '</b><span>跟踪设备</span></div>';
+		html += '<div class="pcdn-stat"><b>' + esc(s.alerts || 0) + '</b><span>累计告警</span></div>';
+		html += '<div class="pcdn-stat"><b>' + esc(s.active_bans || 0) + '</b><span>当前封禁</span></div>';
+		html += '<div class="pcdn-stat"><b>' + esc(s.full_banned || 0) + '</b><span>全端口封禁</span></div>';
+		html += '<div class="pcdn-stat"><b>' + esc(s.upnp_blocked || 0) + '</b><span>UPnP 拦截</span></div>';
+		html += '</div>';
+
+		// 上游 /api/v1/devices 只返回设备级汇总；端口明细按需调用 /api/v1/device
+		var evictions = Number(dv.port_evictions || 0);
+		var drops = Number(dv.port_drops || 0);
+		if (evictions > 0 || drops > 0) {
+			html += '<p class="pcdn-muted" style="margin:0 0 8px;">'
+				+ '[memory] max_ports 已生效：提前过期端口 ' + evictions + ' 次，丢弃新端口报文 ' + drops + ' 次。</p>';
+		}
+
+		var rows = [];
+		for (var i = 0; i < devs.length; i++) {
+			var mac = devs[i].mac || '';
+			rows.push('<tr>'
+				+ '<td>' + esc(mac) + '</td>'
+				+ '<td>' + esc(familyText(devs[i].ipv4)) + '</td>'
+				+ '<td>' + esc(familyText(devs[i].ipv6)) + '</td>'
+				+ '<td><button type="button" class="cbi-button cbi-button-neutral pcdn-rowbtn" data-mac="'
+					+ esc(mac) + '">端口明细</button></td>'
+				+ '</tr>');
+		}
+
+		if (!rows.length) {
+			rows.push('<tr><td colspan="4" class="pcdn-empty">暂无设备统计（还没有流量，或监听网卡 / 名单配置不正确）</td></tr>');
+		}
+
+		html += '<table class="pcdn-table"><thead><tr>'
+			+ '<th>设备 MAC</th><th>IPv4 端口 / 封禁</th><th>IPv6 端口 / 封禁</th><th>操作</th>'
+			+ '</tr></thead><tbody>' + rows.join('') + '</tbody></table>';
+
+		if (devicesError) {
+			html += '<p class="pcdn-muted" style="margin:6px 0 0;">' + esc(devicesError) + '</p>';
+		} else {
+			html += '<p class="pcdn-muted" style="margin:6px 0 0;">'
+				+ '汇总接口不包含端口明细；点击「端口明细」按需读取 /api/v1/device（对端 IP 走 /api/v1/peers）。</p>';
+		}
+
+		box.innerHTML = html;
+
+		var btns = box.querySelectorAll('button[data-mac]');
+		for (var k = 0; k < btns.length; k++) {
+			btns[k].onclick = function() {
+				openDetail(this.getAttribute('data-mac'));
+			};
+		}
 	}
 
 	function openDetail(mac) {
@@ -487,30 +621,48 @@
 
 		// 用 data 对象传参：部分 LuCI 的 XHR.get 会无条件在 URL 后追加 '?'，
 		// 自己拼 query 会多出一个 '?' 并污染最后一个参数。
-		XHR.get(U.device, {
+		var params = {
 			mac: detail.mac,
 			family: detail.family,
 			state: detail.state,
 			limit: detail.limit,
 			page: detail.page
-		}, function(x, d) {
+		};
+
+		if (direct.enabled) {
+			directGet('/api/v1/device', params, function(err, d) {
+				if (!detail) return;
+				if (err) {
+					// directGet 已关闭直连，重走一次代理
+					loadDetail();
+					return;
+				}
+				handleDetail(d, box);
+			});
+			return;
+		}
+
+		XHR.get(U.device, params, function(x, d) {
 			if (!detail) return;
-
-			if (!d || d.error || d.ok === false) {
-				box.innerHTML = '<div class="pcdn-detail">'
-					+ '<div class="pcdn-detail-head"><h4>端口明细：' + esc(detail.mac) + '</h4>'
-					+ '<span style="flex:1;"></span>'
-					+ '<button type="button" class="cbi-button cbi-button-neutral pcdn-rowbtn" id="pcdn-dev-close">关闭</button>'
-					+ '</div>'
-					+ '<p class="pcdn-msg pcdn-msg-bad" style="display:block;">'
-					+ esc(apiError(d, '无法读取端口明细')) + '</p>'
-					+ '</div>';
-				bindDetailHead();
-				return;
-			}
-
-			renderDetail(d);
+			handleDetail(d, box);
 		});
+	}
+
+	function handleDetail(d, box) {
+		if (!d || d.error || d.ok === false) {
+			box.innerHTML = '<div class="pcdn-detail">'
+				+ '<div class="pcdn-detail-head"><h4>端口明细：' + esc(detail.mac) + '</h4>'
+				+ '<span style="flex:1;"></span>'
+				+ '<button type="button" class="cbi-button cbi-button-neutral pcdn-rowbtn" id="pcdn-dev-close">关闭</button>'
+				+ '</div>'
+				+ '<p class="pcdn-msg pcdn-msg-bad" style="display:block;">'
+				+ esc(apiError(d, '无法读取端口明细')) + '</p>'
+				+ '</div>';
+			bindDetailHead();
+			return;
+		}
+
+		renderDetail(d);
 	}
 
 	function renderDetail(v) {
@@ -689,26 +841,42 @@
 			query.limit = peerView.limit;
 		}
 
+		if (direct.enabled) {
+			directGet('/api/v1/peers', query, function(err, d) {
+				if (!peerView) return;
+				if (err) {
+					// directGet 已关闭直连，重走一次代理
+					loadPeers();
+					return;
+				}
+				handlePeers(d, box);
+			});
+			return;
+		}
+
 		XHR.get(U.peers, query, function(x, d) {
 			if (!peerView) return;
-
-			if (!d || d.error || d.ok === false) {
-				box.innerHTML = '<div class="pcdn-peers">'
-					+ '<p class="pcdn-msg pcdn-msg-bad" style="display:block;">'
-					+ esc(apiError(d, '无法读取对端 IP')) + '</p>'
-					+ '<button type="button" class="cbi-button cbi-button-neutral pcdn-rowbtn" id="pcdn-peer-close">关闭</button>'
-					+ '</div>';
-				var cb = $('pcdn-peer-close');
-				if (cb) cb.onclick = function() {
-					peerView = null;
-					var b = $('pcdn-peer-box');
-					if (b) b.innerHTML = '';
-				};
-				return;
-			}
-
-			renderPeers(d);
+			handlePeers(d, box);
 		});
+	}
+
+	function handlePeers(d, box) {
+		if (!d || d.error || d.ok === false) {
+			box.innerHTML = '<div class="pcdn-peers">'
+				+ '<p class="pcdn-msg pcdn-msg-bad" style="display:block;">'
+				+ esc(apiError(d, '无法读取对端 IP')) + '</p>'
+				+ '<button type="button" class="cbi-button cbi-button-neutral pcdn-rowbtn" id="pcdn-peer-close">关闭</button>'
+				+ '</div>';
+			var cb = $('pcdn-peer-close');
+			if (cb) cb.onclick = function() {
+				peerView = null;
+				var b = $('pcdn-peer-box');
+				if (b) b.innerHTML = '';
+			};
+			return;
+		}
+
+		renderPeers(d);
 	}
 
 	function renderPeers(v) {

@@ -90,3 +90,9 @@ msgstr "空间不足时覆盖安装"
 
 msgid "默认关闭。仅当目标分区（16 MiB）与 /tmp（24 MiB）空间都不足时生效：先删除旧程序再下载新版本，因此更新失败将无法自动回滚。"
 msgstr "默认关闭。仅当目标分区（16 MiB）与 /tmp（24 MiB）空间都不足时生效：先删除旧程序再下载新版本，因此更新失败将无法自动回滚。"
+
+msgid "直连后端 API（绕过 LuCI 代理）"
+msgstr "直连后端 API（绕过 LuCI 代理）"
+
+msgid "开启后，实时统计与端口明细由浏览器直接请求 pcdn-detect 的 HTTP API，不再每次轮询都启动 Lua 进程。需要 [http] listen 监听局域网地址（如 0.0.0.0:8080）、设置 token，并把本页来源加入 [http] cors_allowed_origins；条件不满足时自动回退到 LuCI 代理。"
+msgstr "开启后，实时统计与端口明细由浏览器直接请求 pcdn-detect 的 HTTP API，不再每次轮询都启动 Lua 进程。需要 [http] listen 监听局域网地址（如 0.0.0.0:8080）、设置 token，并把本页来源加入 [http] cors_allowed_origins；条件不满足时自动回退到 LuCI 代理。"

@@ -179,6 +179,30 @@ local function reply_json(data)
 	http.write(util.json_encode(data))
 end
 
+-- 直连地址（浏览器绕过 LuCI 代理直接访问 pcdn-detect HTTP API）：
+--   listen 绑到具体非回环地址 → 返回 http://ip:port；
+--   绑到 0.0.0.0 / :: / 空主机 → 返回 ""，由前端用当前访问的主机名 + 端口拼接；
+--   只绑回环地址 → 返回 nil + 原因（浏览器在别的机器上，连不到 127.0.0.1）。
+local function direct_endpoint(listen, port)
+	port = tonumber(port)
+	if not port then
+		return nil, "HTTP 端口无效"
+	end
+
+	local host = tostring(listen or ""):match("^%[?(.-)%]?:%d+$") or ""
+
+	if host == "" or host == "0.0.0.0" or host == "::" then
+		return ""
+	end
+	if host == "127.0.0.1" or host == "::1" or host == "localhost" then
+		return nil, "listen 是回环地址，浏览器无法直连（请改为 0.0.0.0:端口 或局域网 IP）"
+	end
+	if host:find(":", 1, true) then
+		return "http://[" .. host .. "]:" .. tostring(port)
+	end
+	return "http://" .. host .. ":" .. tostring(port)
+end
+
 local function reply_text(text)
 	http.prepare_content("text/plain; charset=utf-8")
 	http.header("Cache-Control", "no-store")
@@ -393,6 +417,14 @@ function action_status()
 	-- 上游 -v 输出版本 + SemVer build metadata（0.0.1-alpha+<hash>）
 	local version_base, version_build = util.version_parts(version)
 
+	-- 直连模式：开启后浏览器直接请求 HTTP API，不再经过本控制器。
+	-- token 只在开启时下发（页面本来就能通过 httpinfo 取到），供 fetch 带 Authorization。
+	local direct = uci_get("direct_api", "0") == "1"
+	local direct_url, direct_hint
+	if direct then
+		direct_url, direct_hint = direct_endpoint(http_cfg.listen, http_cfg.port)
+	end
+
 	reply_json({
 		ok = true,
 		running = pid ~= nil,
@@ -418,6 +450,11 @@ function action_status()
 		http_url = http_cfg.url,
 		http_token_set = http_cfg.token_set,
 		log_file = uci_get("log_file", ""),
+		-- 直连模式：direct_url 为空串表示由前端用当前主机名 + http_port 拼接
+		direct_api = direct,
+		direct_url = direct_url,
+		direct_hint = direct_hint,
+		http_token = direct and http_cfg.token or nil,
 	})
 end
 
