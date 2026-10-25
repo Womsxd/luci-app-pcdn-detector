@@ -37,7 +37,11 @@ function M.call(cmd)
 end
 
 ---------------------------------------------------------------------------
--- JSON（自行实现编码，避免依赖 luci-lib-jsonc；解码尽力而为）
+-- JSON 编解码（自行实现编码，避免依赖 luci-lib-jsonc）
+--
+-- 上游 HTTP API 的大响应（端口明细、对端列表、设备汇总）一律由控制器原样
+-- 透传给浏览器，不在 Lua 侧解析，避免在 Lua 表与字符串之间产生多份内存副本。
+-- 这里的解码只给体积很小的响应使用（如 httpcheck 读取 /api/v1/status 的计数）。
 ---------------------------------------------------------------------------
 
 local function json_escape(s)
@@ -135,7 +139,8 @@ function M.json_encode(value)
 	return table.concat(out)
 end
 
--- 优先 luci.jsonc，其次 luci.json；都不可用时返回 nil
+-- 仅用于解析体积很小的响应（如 /api/v1/status）；大响应请走控制器透传。
+-- 优先 luci.jsonc，其次 luci.json；都不可用时返回 nil。
 function M.json_decode(text)
 	if type(text) ~= "string" or text == "" then
 		return nil
@@ -403,18 +408,6 @@ function M.http_raw_get(listen, path, token)
 	local status = tonumber(resp:match("^HTTP/%d%.%d%s+(%d+)")) or 0
 	local body = resp:match("\r\n\r\n(.*)$") or ""
 	return status, body, nil
-end
-
--- 返回 body；失败返回 nil, 错误说明（保持原有调用方语义）
-function M.http_get(listen, path, token)
-	local status, body, err = M.http_raw_get(listen, path, token)
-	if not status then
-		return nil, err
-	end
-	if status ~= 200 then
-		return nil, "HTTP API 返回状态码 " .. tostring(status) .. (body ~= "" and ("：" .. body) or "")
-	end
-	return body, nil
 end
 
 return M

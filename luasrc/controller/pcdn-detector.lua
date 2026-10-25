@@ -192,48 +192,35 @@ local function url_encode(s)
 	end))
 end
 
--- 访问本机 HTTP API，统一返回 { ok, available, http_status, data, message }。
--- 上游非 200 时返回 {"error":"..."}，这里把 error 文本并入 message，前端可直接展示。
-local function api_request(h, path)
-	local status, body, err = util.http_raw_get(h.listen, path, h.token)
+local HTTP_REASON = {
+	[200] = "OK",
+	[400] = "Bad Request",
+	[401] = "Unauthorized",
+	[403] = "Forbidden",
+	[404] = "Not Found",
+	[405] = "Method Not Allowed",
+	[413] = "Payload Too Large",
+	[414] = "URI Too Long",
+	[431] = "Request Header Fields Too Large",
+	[500] = "Internal Server Error",
+	[501] = "Not Implemented",
+	[503] = "Service Unavailable",
+}
 
-	if not status then
-		return { ok = false, available = false, message = err or "无法访问 HTTP API" }
-	end
-
-	local data
-	if type(body) == "string" and body ~= "" then
-		data = util.json_decode(body)
-	end
-
-	if status ~= 200 then
-		return {
-			ok = false,
-			available = true,
-			http_status = status,
-			message = (type(data) == "table" and data.error)
-				or ("HTTP API 返回状态码 " .. tostring(status)),
-		}
-	end
-
-	if type(data) ~= "table" then
-		return {
-			ok = false,
-			available = true,
-			http_status = status,
-			message = "HTTP API 返回了无法解析的数据",
-		}
-	end
-
-	return { ok = true, available = true, http_status = status, data = data }
+-- 透传上游 JSON：Lua 侧不解析、不重组，原样输出 body 与状态码。
+-- 大响应（如 /api/v1/device 的上千条端口）只经过一次字符串拷贝，
+-- 不再解码成 Lua 表（峰值内存可降到原来的几分之一），解析交给浏览器 JSON.parse。
+local function reply_upstream(code, body)
+	http.status(code, HTTP_REASON[code] or "OK")
+	http.prepare_content("application/json")
+	http.header("Cache-Control", "no-store")
+	http.write(body or "")
 end
 
--- 空 JSON 数组解码后是空表，编码时会变成 {}；显式标记为数组，避免前端遍历时报错
-local function as_array(value)
-	if type(value) ~= "table" then
-		return util.array()
-	end
-	return util.array(value)
+-- 上游不可达时返回本地的 503 JSON（绕开 LuCI 默认错误页，前端好统一展示）
+local function reply_upstream_unreachable(err)
+	http.status(503, HTTP_REASON[503])
+	reply_json({ ok = false, available = false, message = err or "无法访问 HTTP API" })
 end
 
 local function running_pid()
@@ -438,31 +425,52 @@ function action_stats()
 		return
 	end
 
-	local status = api_request(h, "/api/v1/status")
-	if not status.ok then
+	local code, body, err = util.http_raw_get(h.listen, "/api/v1/status", h.token)
+	if not code then
+		reply_upstream_unreachable(err)
+		return
+	end
+
+	if code ~= 200 then
 		reply_json({
 			ok = false,
 			available = false,
-			http_status = status.http_status,
-			message = status.message,
+			http_status = code,
+			message = "HTTP API 返回状态码 " .. tostring(code),
 		})
 		return
 	end
 
-	-- 上游 /api/v1/devices 只返回设备级汇总（IPv4 / IPv6 的端口条目数与封禁数），
-	-- 端口明细改由 /api/v1/device 按需读取；这里不再假设每设备带有 ports 数组。
-	local devices = api_request(h, "/api/v1/devices")
-	if devices.ok then
-		devices.data.devices = as_array(devices.data.devices)
+	if type(body) ~= "string" or body == "" then
+		reply_json({ ok = false, available = false, message = "HTTP API 返回了空响应" })
+		return
 	end
 
-	reply_json({
-		ok = true,
-		available = true,
-		status = status.data,
-		devices = devices.ok and devices.data or nil,
-		devices_error = (not devices.ok) and devices.message or nil,
-	})
+	-- 上游 /api/v1/devices 只返回设备级汇总（IPv4 / IPv6 的端口条目数与封禁数），
+	-- 端口明细由 /api/v1/device 按需读取。两段 JSON 原样拼接，不在 Lua 侧解析。
+	local d_code, d_body, d_err = util.http_raw_get(h.listen, "/api/v1/devices", h.token)
+	local devices_ok = (d_code == 200 and type(d_body) == "string" and d_body ~= "")
+
+	local devices_error
+	if not d_code then
+		devices_error = d_err or "无法访问 HTTP API"
+	elseif d_code ~= 200 then
+		devices_error = "HTTP API 返回状态码 " .. tostring(d_code)
+	elseif not devices_ok then
+		devices_error = "HTTP API 返回了空响应"
+	end
+
+	http.prepare_content("application/json")
+	http.header("Cache-Control", "no-store")
+	http.write('{"ok":true,"available":true,"status":')
+	http.write(body)
+	http.write(',"devices":')
+	http.write(devices_ok and d_body or "null")
+	if devices_error then
+		http.write(',"devices_error":')
+		http.write(util.json_encode(devices_error))
+	end
+	http.write("}")
 end
 
 -- 单设备端口明细：透传 /api/v1/device 的 family / state / limit / page
@@ -507,15 +515,16 @@ function action_device()
 		page = 1
 	end
 
-	local res = api_request(h, string.format(
+	local code, body, err = util.http_raw_get(h.listen, string.format(
 		"/api/v1/device?mac=%s&family=%s&state=%s&limit=%d&page=%d",
-		url_encode(mac), family, state, limit, page))
+		url_encode(mac), family, state, limit, page), h.token)
 
-	if res.ok then
-		res.data.ports = as_array(res.data.ports)
+	if not code then
+		reply_upstream_unreachable(err)
+		return
 	end
 
-	reply_json(res)
+	reply_upstream(code, body)
 end
 
 -- 单端口对端 IP：透传 /api/v1/peers 的 proto / v6 / limit / page
@@ -560,12 +569,13 @@ function action_peers()
 		path = path .. "&limit=" .. tostring(limit)
 	end
 
-	local res = api_request(h, path)
-	if res.ok then
-		res.data.peer_ips = as_array(res.data.peer_ips)
+	local code, body, err = util.http_raw_get(h.listen, path, h.token)
+	if not code then
+		reply_upstream_unreachable(err)
+		return
 	end
 
-	reply_json(res)
+	reply_upstream(code, body)
 end
 
 -- 获取 [http] 端口 / 密钥（按需调用，不参与状态轮询）
@@ -612,7 +622,13 @@ function action_httpcheck()
 	end
 
 	local status, body, err = util.http_raw_get(h.listen, "/api/v1/status", h.token)
-	local data = body and body ~= "" and util.json_decode(body) or nil
+
+	-- 仅此处解析：/api/v1/status 很小，用于在提示里显示设备数与告警数；
+	-- 端口明细 / 对端列表等大响应一律透传，不经过 Lua 解码。
+	local data
+	if status == 200 and type(body) == "string" and body ~= "" then
+		data = util.json_decode(body)
+	end
 
 	if not status then
 		reply_json({

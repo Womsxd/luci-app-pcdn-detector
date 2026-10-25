@@ -314,6 +314,7 @@ OPENWRT_MIRROR=tencent-intra OPENWRT_MIRROR_FALLBACK=official \
 - 实时统计区每 5 秒自动读取一次；HTTP API 正常时显示“正常”，否则显示“异常”。
 - **设备级汇总**：概览页读取 `/api/v1/devices`，展示每设备 IPv4 / IPv6 的端口条目数与封禁数（含 UDP / TCP 拆分）；上游该接口不再下发端口明细，`port_evictions` / `port_drops` 大于 0 时会提示 `[memory] max_ports` 已生效。
 - **端口明细 / 对端 IP**：点击「端口明细」按需请求 `/api/v1/device`（地址族、封禁状态筛选 + 分页），点击「对端 N」请求 `/api/v1/peers`（分页上限受 `[http] device_ip_limit` 约束）。自动刷新只更新汇总，展开的明细保持不动。
+- **JSON 透传**：`device` / `peers` 把上游原始 JSON 与状态码直接透传给浏览器，`stats` 把 `/api/v1/status` 与 `/api/v1/devices` 两段原文拼接；浏览器统一用 `JSON.parse` 解析，避免大响应在 Lua 表与字符串之间产生多份内存副本。仅「检测 HTTP API」为显示设备数 / 告警数解析体积很小的 `/api/v1/status`。上游 4xx/5xx 的 `{"error":"..."}` 也会原样到达前端。
 
 密钥只返回给已登录的 LuCI 管理员，接口响应带 `Cache-Control: no-store`；请不要在不可信网络中使用弱 token。
 

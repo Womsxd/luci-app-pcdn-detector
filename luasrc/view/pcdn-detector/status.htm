@@ -470,6 +470,14 @@
 		if (refresh) refresh.onclick = function() { loadDetail(); };
 	}
 
+	// 后端已改为透传上游 JSON：成功时直接是上游响应体，失败时是 {"error":"..."}，
+	// 连接失败则是本地返回的 {ok:false, message:"..."}。
+	function apiError(d, fallback) {
+		if (!d) return fallback;
+		return d.error || d.message
+			|| (d.http_status ? ('HTTP API 返回 ' + d.http_status) : fallback);
+	}
+
 	function loadDetail() {
 		var box = $('pcdn-device');
 		if (!box || !detail) return;
@@ -488,20 +496,20 @@
 		}, function(x, d) {
 			if (!detail) return;
 
-			if (!d || !d.ok) {
+			if (!d || d.error || d.ok === false) {
 				box.innerHTML = '<div class="pcdn-detail">'
 					+ '<div class="pcdn-detail-head"><h4>端口明细：' + esc(detail.mac) + '</h4>'
 					+ '<span style="flex:1;"></span>'
 					+ '<button type="button" class="cbi-button cbi-button-neutral pcdn-rowbtn" id="pcdn-dev-close">关闭</button>'
 					+ '</div>'
 					+ '<p class="pcdn-msg pcdn-msg-bad" style="display:block;">'
-					+ esc((d && d.message) || '无法读取端口明细') + '</p>'
+					+ esc(apiError(d, '无法读取端口明细')) + '</p>'
 					+ '</div>';
 				bindDetailHead();
 				return;
 			}
 
-			renderDetail(d.data);
+			renderDetail(d);
 		});
 	}
 
@@ -684,10 +692,10 @@
 		XHR.get(U.peers, query, function(x, d) {
 			if (!peerView) return;
 
-			if (!d || !d.ok) {
+			if (!d || d.error || d.ok === false) {
 				box.innerHTML = '<div class="pcdn-peers">'
 					+ '<p class="pcdn-msg pcdn-msg-bad" style="display:block;">'
-					+ esc((d && d.message) || '无法读取对端 IP') + '</p>'
+					+ esc(apiError(d, '无法读取对端 IP')) + '</p>'
 					+ '<button type="button" class="cbi-button cbi-button-neutral pcdn-rowbtn" id="pcdn-peer-close">关闭</button>'
 					+ '</div>';
 				var cb = $('pcdn-peer-close');
@@ -699,7 +707,7 @@
 				return;
 			}
 
-			renderPeers(d.data);
+			renderPeers(d);
 		});
 	}
 
@@ -773,6 +781,7 @@
 			var msg = d.message || '';
 			if (d.reachable && d.http_status) {
 				msg += '（HTTP ' + d.http_status + '）';
+				// 仅 /api/v1/status 这小段 JSON 在 Lua 侧解析，用于提示计数
 				if (d.data && d.data.tracked_devices !== undefined) {
 					msg += '\n跟踪设备：' + d.data.tracked_devices + '，告警：' + (d.data.alerts || 0);
 				}
