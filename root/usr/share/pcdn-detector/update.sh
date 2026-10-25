@@ -109,9 +109,9 @@ esac
 log "安装成功：$BIN"
 log "版本：$VERSION"
 
-if /etc/init.d/pcdn-detect enabled >/dev/null 2>&1; then
+if /etc/init.d/pcdn-detector enabled >/dev/null 2>&1; then
 	log "正在重启服务"
-	/etc/init.d/pcdn-detect restart >/dev/null 2>&1
+	/etc/init.d/pcdn-detector restart >/dev/null 2>&1
 	log "服务已重启"
 elif pidof "$(basename "$BIN")" >/dev/null 2>&1; then
 	log "服务正在运行但未设置开机自启，请手动重启后生效"

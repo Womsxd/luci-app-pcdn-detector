@@ -1,6 +1,6 @@
-# luci-app-pcdn-detect
+# luci-app-pcdn-detector
 
-[pcdn-detect](https://cnb.cool/womsxd/pcdn-detector) 的 LuCI 前端：在 OpenWrt 上管理 PCDN 行为检测服务。
+[pcdn-detector](https://github.com/womsxd/pcdn-detector) 的 LuCI 前端：在 OpenWrt 上管理 PCDN 行为检测服务。
 
 最低支持 OpenWrt 20.02 / 21.02 系列（20.02 未发布正式版，实际以 21.02 为最低正式版），兼容官方 OpenWrt、Lean LEDE、ImmortalWrt。同一份 Makefile 会根据构建树自动产出 `.ipk`（opkg）或 `.apk`（OpenWrt 24.10+ 的 apk）。
 
@@ -15,29 +15,29 @@
 ## 目录结构
 
 ```
-luci-app-pcdn-detect/
-├── Makefile                                  # OpenWrt 打包
-├── scripts/build-openwrt.sh                  # 官方源码编译 ipk / apk
+luci-app-pcdn-detector/
+├── Makefile                                      # OpenWrt 打包
+├── scripts/build-openwrt.sh                      # 官方源码编译 ipk / apk
 ├── luasrc/
-│   ├── controller/pcdn-detect.lua            # 菜单、页面与后端接口
-│   ├── model/pcdn_toml.lua                   # TOML 只读解析（状态 / 统计）
-│   ├── model/pcdn_util.lua                   # JSON、进程、HTTP、格式化
-│   ├── model/cbi/pcdn-detect/
-│   │   ├── overview.lua                      # 概览 + 服务设置（UCI）
-│   │   ├── config.lua                        # 完整 TOML 文本编辑
-│   │   ├── log.lua                           # 日志
-│   │   └── update.lua                        # 下载源设置
-│   └── view/pcdn-detect/
-│       ├── status.htm                        # 状态卡片 + 服务控制
-│       ├── config.htm                        # TOML 文本编辑器
-│       ├── log.htm                           # 日志查看器
-│       └── update.htm                        # 下载面板
+│   ├── controller/pcdn-detector.lua              # 菜单、页面与后端接口
+│   ├── model/pcdn_toml.lua                       # TOML 只读解析（状态 / 统计）
+│   ├── model/pcdn_util.lua                       # JSON、进程、HTTP、格式化
+│   ├── model/cbi/pcdn-detector/
+│   │   ├── overview.lua                          # 概览 + 服务设置（UCI）
+│   │   ├── config.lua                            # 完整 TOML 文本编辑
+│   │   ├── log.lua                               # 日志
+│   │   └── update.lua                            # 下载源设置
+│   └── view/pcdn-detector/
+│       ├── status.htm                            # 状态卡片 + 服务控制
+│       ├── config.htm                            # TOML 文本编辑器
+│       ├── log.htm                               # 日志查看器
+│       └── update.htm                            # 下载面板
 ├── root/
-│   ├── etc/config/pcdn-detect                # UCI 配置
-│   ├── etc/init.d/pcdn-detect                # procd 服务脚本（缺配置时让程序自动生成）
-│   ├── etc/uci-defaults/40_luci-pcdn-detect  # 首次安装初始化
-│   └── usr/share/pcdn-detect/update.sh       # 下载 / 安装 / 回滚脚本
-└── po/zh-cn/pcdn-detect.po
+│   ├── etc/config/pcdn-detector                  # UCI 配置
+│   ├── etc/init.d/pcdn-detector                  # procd 服务脚本（缺配置时让程序自动生成）
+│   ├── etc/uci-defaults/40_luci-pcdn-detector    # 首次安装初始化
+│   └── usr/share/pcdn-detector/update.sh         # 下载 / 安装 / 回滚脚本
+└── po/zh-cn/pcdn-detector.po
 ```
 
 > 仓库不内嵌 TOML 配置：首次启动服务或首次打开「配置编辑」时，由
@@ -64,20 +64,20 @@ luci-app-pcdn-detect/
 
 ```bash
 cd openwrt
-git clone <本仓库地址> package/luci-app-pcdn-detect
+git clone <本仓库地址> package/luci-app-pcdn-detector
 ./scripts/feeds update -a && ./scripts/feeds install -a   # 首次编译时执行
-make menuconfig     # LuCI -> Applications -> luci-app-pcdn-detect
-make package/luci-app-pcdn-detect/compile V=s
+make menuconfig     # LuCI -> Applications -> luci-app-pcdn-detector
+make package/luci-app-pcdn-detector/compile V=s
 ```
 
 产物：
 
 ```bash
 # opkg 构建树（未启用 CONFIG_USE_APK，如 23.05 及更早）
-bin/packages/<arch>/luci/luci-app-pcdn-detect_*.ipk
+bin/packages/<arch>/luci/luci-app-pcdn-detector_*.ipk
 
 # apk 构建树（OpenWrt 24.10+）
-bin/packages/<arch>/luci/luci-app-pcdn-detect-*.apk
+bin/packages/<arch>/luci/luci-app-pcdn-detector-*.apk
 ```
 
 > `Makefile` 没有把 `pcdn-detect` 写成依赖，因为上游二进制通常不在官方 feed 中。
@@ -90,8 +90,8 @@ scp -r luasrc root /tmp/
 ssh root@192.168.1.1 '
   cp -r /tmp/luasrc/* /usr/lib/lua/luci/ &&
   cp -r /tmp/root/* / &&
-  chmod +x /etc/init.d/pcdn-detect /etc/uci-defaults/40_luci-pcdn-detect /usr/share/pcdn-detect/update.sh &&
-  /etc/init.d/pcdn-detect enable &&
+  chmod +x /etc/init.d/pcdn-detector /etc/uci-defaults/40_luci-pcdn-detector /usr/share/pcdn-detector/update.sh &&
+  /etc/init.d/pcdn-detector enable &&
   rm -f /tmp/luci-indexcache && rm -rf /tmp/luci-modulecache
 '
 ```
@@ -283,7 +283,7 @@ OPENWRT_MIRROR=tencent-intra OPENWRT_MIRROR_FALLBACK=official \
 
 | 层 | 文件 | 内容 |
 | --- | --- | --- |
-| UCI | `/etc/config/pcdn-detect` | 开机自启、配置文件路径、二进制路径、附加命令行参数、下载源 |
+| UCI | `/etc/config/pcdn-detector` | 开机自启、配置文件路径、二进制路径、附加命令行参数、下载源 |
 | TOML | `/etc/pcdn-detect/pcdn-detect.toml` | pcdn-detect 自身的全部配置（检测、抓包、内存、日志、HTTP、黑白名单、防火墙、UPnP）；首次使用时由程序生成 |
 
 - 仓库与安装包 **不包含 TOML 文件**。缺少配置时，服务启动脚本或 LuCI 会在临时目录执行
@@ -385,7 +385,7 @@ rm -f /tmp/pcdn-detect.version
 
 新版已修复：缓存 key 包含 `mtime | ctime | mode`，且只缓存匹配版本号的输出，错误信息不再写入缓存。
 
-**`opkg remove luci-app-pcdn-detect` 报 `Command failed: Not found`**
+**`opkg remove luci-app-pcdn-detector` 报 `Command failed: Not found`**
 
 OpenWrt 的 `default_prerm` 会遍历包内的 `/etc/init.d/*` 并执行 `stop`。服务当前未注册到 procd 时，`ubus call service delete` 返回 `NOT_FOUND`，ubus CLI 打印 `Command failed: Not found`；`default_prerm` 没有重定向这条输出。
 
@@ -397,8 +397,8 @@ OpenWrt 的 `default_prerm` 会遍历包内的 `/etc/init.d/*` 并执行 `stop`�
 临时卸载旧包：
 
 ```bash
-mv /usr/lib/opkg/info/luci-app-pcdn-detect.prerm /tmp/
-opkg remove luci-app-pcdn-detect
+mv /usr/lib/opkg/info/luci-app-pcdn-detector.prerm /tmp/
+opkg remove luci-app-pcdn-detector
 ```
 
 删除后重新安装新包即可。
@@ -415,8 +415,8 @@ opkg remove luci-app-pcdn-detect
 find luasrc -name '*.lua' -exec luac -p {} \;
 
 # shell 语法
-sh -n root/etc/init.d/pcdn-detect
-sh -n root/usr/share/pcdn-detect/update.sh
+sh -n root/etc/init.d/pcdn-detector
+sh -n root/usr/share/pcdn-detector/update.sh
 
 # 默认配置由程序自己生成，可在临时目录验证
 tmp="$(mktemp -d)"

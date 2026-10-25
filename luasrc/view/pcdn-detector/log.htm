@@ -1,5 +1,5 @@
 <%#
- luci-app-pcdn-detect 日志页
+ luci-app-pcdn-detector 日志页
 -%>
 
 <style>
@@ -82,7 +82,7 @@
 
 <script type="text/javascript">//<![CDATA[
 (function() {
-	var U = '<%=url("admin", "services", "pcdn-detect", "getlog")%>';
+	var U = '<%=url("admin", "services", "pcdn-detector", "getlog")%>';
 
 	var box = document.getElementById('pcdn-log');
 	var info = document.getElementById('pcdn-log-info');
@@ -178,7 +178,7 @@
 		}
 		var d = new Date();
 		var p = function(n) { return n < 10 ? '0' + n : n; };
-		var name = 'pcdn-detect-log-' + d.getFullYear() + p(d.getMonth() + 1) + p(d.getDate())
+		var name = 'pcdn-detector-log-' + d.getFullYear() + p(d.getMonth() + 1) + p(d.getDate())
 			+ '-' + p(d.getHours()) + p(d.getMinutes()) + p(d.getSeconds()) + '.log';
 
 		var blob = new Blob([text], { type: 'text/plain;charset=utf-8' });

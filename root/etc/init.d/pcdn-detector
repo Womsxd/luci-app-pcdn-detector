@@ -1,15 +1,15 @@
 #!/bin/sh /etc/rc.common
 
-# pcdn-detect 服务脚本
+# pcdn-detector 服务脚本（二进制 pcdn-detect）
 #
 # 说明：
-#   - 配置文件由 UCI（/etc/config/pcdn-detect）指定，程序自身读取 TOML；
+#   - 配置文件由 UCI（/etc/config/pcdn-detector）指定，程序自身读取 TOML；
 #   - 配置热重载通过 SIGHUP 完成（不重启进程、不丢失封禁状态）；
 #   - 日志走 stdout/stderr，由 procd 写入系统日志（logread 可查）。
 
 USE_PROCD=1
 
-# default_prerm 在卸载时会直接执行 "/etc/init.d/pcdn-detect stop"。
+# default_prerm 在卸载时会直接执行 "/etc/init.d/pcdn-detector stop"。
 # 服务未注册到 procd 时，ubus call service delete 返回 NOT_FOUND，
 # 会打印 "Command failed: Not found"；这里静默处理。
 procd_kill() {
@@ -21,7 +21,7 @@ procd_kill() {
 START=99
 STOP=01
 
-CONFIG_NAME="pcdn-detect"
+CONFIG_NAME="pcdn-detector"
 SECTION="main"
 
 DEFAULT_BIN="/usr/bin/pcdn-detect"

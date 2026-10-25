@@ -1,5 +1,5 @@
 <%#
- luci-app-pcdn-detect 概览页：运行状态、服务控制、HTTP API 实时统计
+ luci-app-pcdn-detector 概览页：运行状态、服务控制、HTTP API 实时统计
 -%>
 
 <style>
@@ -134,14 +134,14 @@
 <script type="text/javascript">//<![CDATA[
 (function() {
 	var U = {
-		status: '<%=url("admin", "services", "pcdn-detect", "status")%>',
-		svc: '<%=url("admin", "services", "pcdn-detect", "svc")%>',
-		stats: '<%=url("admin", "services", "pcdn-detect", "stats")%>',
-		httpinfo: '<%=url("admin", "services", "pcdn-detect", "httpinfo")%>',
-		httpcheck: '<%=url("admin", "services", "pcdn-detect", "httpcheck")%>',
-		config: '<%=url("admin", "services", "pcdn-detect", "config")%>',
-		log: '<%=url("admin", "services", "pcdn-detect", "log")%>',
-		update: '<%=url("admin", "services", "pcdn-detect", "update")%>'
+		status: '<%=url("admin", "services", "pcdn-detector", "status")%>',
+		svc: '<%=url("admin", "services", "pcdn-detector", "svc")%>',
+		stats: '<%=url("admin", "services", "pcdn-detector", "stats")%>',
+		httpinfo: '<%=url("admin", "services", "pcdn-detector", "httpinfo")%>',
+		httpcheck: '<%=url("admin", "services", "pcdn-detector", "httpcheck")%>',
+		config: '<%=url("admin", "services", "pcdn-detector", "config")%>',
+		log: '<%=url("admin", "services", "pcdn-detector", "log")%>',
+		update: '<%=url("admin", "services", "pcdn-detector", "update")%>'
 	};
 
 	var httpEnabled = false;

@@ -1,5 +1,5 @@
 <%#
- luci-app-pcdn-detect 下载 / 更新页
+ luci-app-pcdn-detector 下载 / 更新页
 -%>
 
 <style>
@@ -93,10 +93,10 @@
 <script type="text/javascript">//<![CDATA[
 (function() {
 	var U = {
-		info: '<%=url("admin", "services", "pcdn-detect", "updateinfo")%>',
-		check: '<%=url("admin", "services", "pcdn-detect", "checkupdate")%>',
-		run: '<%=url("admin", "services", "pcdn-detect", "doupdate")%>',
-		log: '<%=url("admin", "services", "pcdn-detect", "updatelog")%>'
+		info: '<%=url("admin", "services", "pcdn-detector", "updateinfo")%>',
+		check: '<%=url("admin", "services", "pcdn-detector", "checkupdate")%>',
+		run: '<%=url("admin", "services", "pcdn-detector", "doupdate")%>',
+		log: '<%=url("admin", "services", "pcdn-detector", "updatelog")%>'
 	};
 
 	var info = {};
@@ -189,7 +189,7 @@
 			if (!d.has_curl && !d.has_wget) {
 				showMsg('系统缺少 curl 与 wget，无法下载。', false);
 			} else if (!d.script_exists) {
-				showMsg('缺少更新脚本 /usr/share/pcdn-detect/update.sh，请重新安装本 LuCI 应用。', false);
+				showMsg('缺少更新脚本 /usr/share/pcdn-detector/update.sh，请重新安装本 LuCI 应用。', false);
 			} else if (d.arch === 'unknown') {
 				showMsg('无法识别设备架构，请手动填写正确的 Release 资源地址。', false);
 			}

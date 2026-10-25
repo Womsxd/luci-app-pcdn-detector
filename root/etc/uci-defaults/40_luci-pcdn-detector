@@ -1,14 +1,14 @@
 #!/bin/sh
-# luci-app-pcdn-detect 首次安装时的初始化脚本
+# luci-app-pcdn-detector 首次安装时的初始化脚本
 #
 # 默认 TOML 不再随包提供：首次启动服务（或首次打开配置页）时由 pcdn-detect
 # 自己生成，内容取自二进制内置模板，可随上游版本更新。
 
 # 注册 ucitrack，保证 UCI 变更后能触发服务 reload
 uci -q batch <<-EOF >/dev/null 2>&1
-	delete ucitrack.@pcdn-detect[-1]
-	add ucitrack pcdn-detect
-	set ucitrack.@pcdn-detect[-1].init=pcdn-detect
+	delete ucitrack.@pcdn-detector[-1]
+	add ucitrack pcdn-detector
+	set ucitrack.@pcdn-detector[-1].init=pcdn-detector
 	commit ucitrack
 EOF
 

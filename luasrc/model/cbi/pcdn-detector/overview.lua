@@ -2,12 +2,12 @@ local util = require "luci.model.pcdn_util"
 
 local m, s, o
 
-m = Map("pcdn-detect", translate("PCDN 检测"))
+m = Map("pcdn-detector", translate("PCDN 检测"))
 m.description = translate("在 LAN 侧网卡抓包，按「设备 MAC + 本地端口」统计对端公网 IP 数量；超过阈值即判定疑似 PCDN，并可选自动对接防火墙封禁。")
 
-m:section(SimpleSection).template = "pcdn-detect/status"
+m:section(SimpleSection).template = "pcdn-detector/status"
 
-s = m:section(TypedSection, "pcdn-detect", translate("服务设置"))
+s = m:section(TypedSection, "pcdn-detector", translate("服务设置"))
 s.anonymous = true
 s.addremove = false
 
@@ -36,16 +36,16 @@ o.description = translate("可选，按空格拆分后追加到启动命令。�
 -- 保存 UCI 后让开关立即生效（reload_config 已由 procd trigger 兜底）
 m.on_after_commit = function()
 	local cursor = require("luci.model.uci").cursor()
-	if cursor:get("pcdn-detect", "main", "enabled") ~= "1" then
+	if cursor:get("pcdn-detector", "main", "enabled") ~= "1" then
 		return
 	end
 
-	local bin = cursor:get("pcdn-detect", "main", "bin_path") or "/usr/bin/pcdn-detect"
+	local bin = cursor:get("pcdn-detector", "main", "bin_path") or "/usr/bin/pcdn-detect"
 
 	if util.pid_of(bin) then
-		luci.sys.call("/etc/init.d/pcdn-detect reload >/dev/null 2>&1")
+		luci.sys.call("/etc/init.d/pcdn-detector reload >/dev/null 2>&1")
 	else
-		luci.sys.call("/etc/init.d/pcdn-detect start >/dev/null 2>&1")
+		luci.sys.call("/etc/init.d/pcdn-detector start >/dev/null 2>&1")
 	end
 end
 

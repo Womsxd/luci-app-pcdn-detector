@@ -1,11 +1,11 @@
 local m, s, o
 
-m = Map("pcdn-detect", translate("下载 / 更新"))
+m = Map("pcdn-detector", translate("下载 / 更新"))
 m.description = translate("从 GitHub Release 或自定义地址下载 pcdn-detect 二进制并安装。下载后会用 -v 自检，失败自动回滚到旧版本。")
 
-m:section(SimpleSection).template = "pcdn-detect/update"
+m:section(SimpleSection).template = "pcdn-detector/update"
 
-s = m:section(TypedSection, "pcdn-detect", translate("下载源"))
+s = m:section(TypedSection, "pcdn-detector", translate("下载源"))
 s.anonymous = true
 s.addremove = false
 

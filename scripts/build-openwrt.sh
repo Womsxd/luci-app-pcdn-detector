@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# 使用官方 OpenWrt 源码编译 luci-app-pcdn-detect 的 ipk / apk
+# 使用官方 OpenWrt 源码编译 luci-app-pcdn-detector 的 ipk / apk
 #
 # 用法：
 #   ./scripts/build-openwrt.sh <21.02|22.03|23.05|24.10|all> [--sdk] [--jobs N] [--update] [--clean]
@@ -236,7 +236,7 @@ fi
 
 copy_package() {
 	local tree="$1"
-	local pkgdir="$tree/package/luci-app-pcdn-detect"
+	local pkgdir="$tree/package/luci-app-pcdn-detector"
 
 	rm -rf "$pkgdir"
 	mkdir -p "$pkgdir"
@@ -245,9 +245,9 @@ copy_package() {
 	cp -a "$ROOT_DIR/luasrc" "$ROOT_DIR/root" "$ROOT_DIR/po" "$pkgdir/"
 
 	chmod 755 \
-		"$pkgdir/root/etc/init.d/pcdn-detect" \
-		"$pkgdir/root/etc/uci-defaults/40_luci-pcdn-detect" \
-		"$pkgdir/root/usr/share/pcdn-detect/update.sh" 2>/dev/null || true
+		"$pkgdir/root/etc/init.d/pcdn-detector" \
+		"$pkgdir/root/etc/uci-defaults/40_luci-pcdn-detector" \
+		"$pkgdir/root/usr/share/pcdn-detector/update.sh" 2>/dev/null || true
 }
 
 # 7z 会以“Dangerous link path”为由跳过带 .. 的符号链接，
@@ -500,7 +500,7 @@ build_one() {
 
 	echo
 	echo "============================================================"
-	echo " 编译 luci-app-pcdn-detect for OpenWrt $ver（$ext）"
+	echo " 编译 luci-app-pcdn-detector for OpenWrt $ver（$ext）"
 	echo " 模式：$MODE"
 	echo "============================================================"
 
@@ -576,7 +576,7 @@ build_one() {
 		fi
 
 		for sym in \
-			CONFIG_PACKAGE_luci-app-pcdn-detect \
+			CONFIG_PACKAGE_luci-app-pcdn-detector \
 			CONFIG_PACKAGE_luci-compat \
 			CONFIG_PACKAGE_luci-base \
 			CONFIG_USE_APK; do
@@ -585,7 +585,7 @@ build_one() {
 		done
 
 		{
-			echo "CONFIG_PACKAGE_luci-app-pcdn-detect=y"
+			echo "CONFIG_PACKAGE_luci-app-pcdn-detector=y"
 			echo "CONFIG_PACKAGE_luci-compat=y"
 			echo "CONFIG_PACKAGE_luci-base=y"
 			if [ "$ver" = "24.10" ]; then
@@ -597,7 +597,7 @@ build_one() {
 			echo "CONFIG_TARGET_x86=y"
 			echo "CONFIG_TARGET_x86_64=y"
 			echo "CONFIG_TARGET_x86_64_Generic=y"
-			echo "CONFIG_PACKAGE_luci-app-pcdn-detect=y"
+			echo "CONFIG_PACKAGE_luci-app-pcdn-detector=y"
 			echo "CONFIG_PACKAGE_luci-compat=y"
 			echo "CONFIG_PACKAGE_luci-base=y"
 			if [ "$ver" = "24.10" ]; then
@@ -608,8 +608,8 @@ build_one() {
 
 	make -C "$tree" defconfig
 
-	grep -q '^CONFIG_PACKAGE_luci-app-pcdn-detect=y' "$tree/.config" \
-		|| die "defconfig 后未选中 luci-app-pcdn-detect"
+	grep -q '^CONFIG_PACKAGE_luci-app-pcdn-detector=y' "$tree/.config" \
+		|| die "defconfig 后未选中 luci-app-pcdn-detector"
 
 	if [ "$ver" = "24.10" ] && ! grep -q '^CONFIG_USE_APK=y' "$tree/.config"; then
 		echo "警告：24.10 未启用 CONFIG_USE_APK，产物可能是 ipk" >&2
@@ -626,11 +626,11 @@ build_one() {
 	fi
 
 	echo "编译 LuCI 包 ..."
-	make -C "$tree" package/luci-app-pcdn-detect/compile -j"$JOBS" V=s
+	make -C "$tree" package/luci-app-pcdn-detector/compile -j"$JOBS" V=s
 
 	mkdir -p "$outdir"
 	find "$outdir" -maxdepth 1 -type f \( -name '*.ipk' -o -name '*.apk' \) -delete
-	find "$tree/bin/packages" -type f -name "luci-app-pcdn-detect*.$ext" \
+	find "$tree/bin/packages" -type f -name "luci-app-pcdn-detector*.$ext" \
 		-exec cp -f {} "$outdir/" \;
 
 	local count

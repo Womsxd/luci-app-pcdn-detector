@@ -1,5 +1,5 @@
 --[[
-luci-app-pcdn-detect 公共工具：JSON、Shell、进程、HTTP 客户端、格式化
+luci-app-pcdn-detector 公共工具：JSON、Shell、进程、HTTP 客户端、格式化
 ]]--
 
 local M = {}

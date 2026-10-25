@@ -1,5 +1,5 @@
 <%#
- luci-app-pcdn-detect 配置编辑页：完整 TOML 文本（纯文本，无解析）
+ luci-app-pcdn-detector 配置编辑页：完整 TOML 文本（纯文本，无解析）
 -%>
 
 <style>
@@ -68,11 +68,11 @@
 	// 纯文本模式：getconfig 返回完整文件，saveconfig 接收完整文件。
 	// 前端不做任何 TOML 解析，用户像编辑 txt 一样编辑全文。
 	var U = {
-		get: '<%=url("admin", "services", "pcdn-detect", "getconfig")%>',
-		save: '<%=url("admin", "services", "pcdn-detect", "saveconfig")%>',
-		savechunk: '<%=url("admin", "services", "pcdn-detect", "savechunk")%>',
-		savecommit: '<%=url("admin", "services", "pcdn-detect", "savecommit")%>',
-		reset: '<%=url("admin", "services", "pcdn-detect", "resetsettings")%>'
+		get: '<%=url("admin", "services", "pcdn-detector", "getconfig")%>',
+		save: '<%=url("admin", "services", "pcdn-detector", "saveconfig")%>',
+		savechunk: '<%=url("admin", "services", "pcdn-detector", "savechunk")%>',
+		savecommit: '<%=url("admin", "services", "pcdn-detector", "savecommit")%>',
+		reset: '<%=url("admin", "services", "pcdn-detector", "resetsettings")%>'
 	};
 
 	var editor = document.getElementById('pcdn-cfg-text');

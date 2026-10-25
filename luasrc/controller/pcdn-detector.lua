@@ -1,11 +1,11 @@
 --[[
-luci-app-pcdn-detect 控制器
+luci-app-pcdn-detector 控制器
 
 页面：
-	/admin/services/pcdn-detect/overview	运行状态 + 服务设置
-	/admin/services/pcdn-detect/config	完整 TOML 文本编辑（txt 方式）
-	/admin/services/pcdn-detect/log		运行日志
-	/admin/services/pcdn-detect/update	二进制下载 / 更新
+	/admin/services/pcdn-detector/overview	运行状态 + 服务设置
+	/admin/services/pcdn-detector/config	完整 TOML 文本编辑（txt 方式）
+	/admin/services/pcdn-detector/log		运行日志
+	/admin/services/pcdn-detector/update	二进制下载 / 更新
 
 接口（全部仅登录用户可访问）：
 	status / svc / getconfig / saveconfig / resetsettings /
@@ -17,7 +17,7 @@ luci-app-pcdn-detect 控制器
 	后端不解析、不打补丁，只做 -T 校验、保存与热重载。
 ]]--
 
-module("luci.controller.pcdn-detect", package.seeall)
+module("luci.controller.pcdn-detector", package.seeall)
 
 local fs = require "nixio.fs"
 local http = require "luci.http"
@@ -26,79 +26,79 @@ local uci = require "luci.model.uci".cursor()
 local toml = require "luci.model.pcdn_toml"
 local util = require "luci.model.pcdn_util"
 
-local APP = "pcdn-detect"
+local APP = "pcdn-detector"
 local SID = "main"
 
 local DEFAULT_BIN = "/usr/bin/pcdn-detect"
 local DEFAULT_CFG = "/etc/pcdn-detect/pcdn-detect.toml"
 local CHECK_TOML = "/tmp/pcdn-detect.check.toml"
 local CHECK_OUT = "/tmp/pcdn-detect.check.out"
-local UPDATE_SCRIPT = "/usr/share/pcdn-detect/update.sh"
+local UPDATE_SCRIPT = "/usr/share/pcdn-detector/update.sh"
 local UPDATE_LOG = "/tmp/pcdn-detect-update.log"
 local UPDATE_FLAG = "/tmp/pcdn-detect-update.running"
 local DEFAULT_REPO = "Womsxd/pcdn-detector"
-local INITD = "/etc/init.d/pcdn-detect"
+local INITD = "/etc/init.d/pcdn-detector"
 
 function index()
-	entry({ "admin", "services", "pcdn-detect" },
-		alias("admin", "services", "pcdn-detect", "overview"),
+	entry({ "admin", "services", "pcdn-detector" },
+		alias("admin", "services", "pcdn-detector", "overview"),
 		_("PCDN 检测"), 60).dependent = true
 
-	entry({ "admin", "services", "pcdn-detect", "overview" },
-		cbi("pcdn-detect/overview"), _("概览"), 10).leaf = true
+	entry({ "admin", "services", "pcdn-detector", "overview" },
+		cbi("pcdn-detector/overview"), _("概览"), 10).leaf = true
 
-	entry({ "admin", "services", "pcdn-detect", "config" },
-		cbi("pcdn-detect/config"), _("配置编辑"), 20).leaf = true
+	entry({ "admin", "services", "pcdn-detector", "config" },
+		cbi("pcdn-detector/config"), _("配置编辑"), 20).leaf = true
 
-	entry({ "admin", "services", "pcdn-detect", "log" },
-		cbi("pcdn-detect/log"), _("日志"), 30).leaf = true
+	entry({ "admin", "services", "pcdn-detector", "log" },
+		cbi("pcdn-detector/log"), _("日志"), 30).leaf = true
 
-	entry({ "admin", "services", "pcdn-detect", "update" },
-		cbi("pcdn-detect/update"), _("下载/更新"), 40).leaf = true
+	entry({ "admin", "services", "pcdn-detector", "update" },
+		cbi("pcdn-detector/update"), _("下载/更新"), 40).leaf = true
 
-	entry({ "admin", "services", "pcdn-detect", "status" },
+	entry({ "admin", "services", "pcdn-detector", "status" },
 		call("action_status")).leaf = true
 
-	entry({ "admin", "services", "pcdn-detect", "svc" },
+	entry({ "admin", "services", "pcdn-detector", "svc" },
 		call("action_service")).leaf = true
 
-	entry({ "admin", "services", "pcdn-detect", "getconfig" },
+	entry({ "admin", "services", "pcdn-detector", "getconfig" },
 		call("action_getconfig")).leaf = true
 
-	entry({ "admin", "services", "pcdn-detect", "saveconfig" },
+	entry({ "admin", "services", "pcdn-detector", "saveconfig" },
 		call("action_saveconfig")).leaf = true
 
-	entry({ "admin", "services", "pcdn-detect", "savechunk" },
+	entry({ "admin", "services", "pcdn-detector", "savechunk" },
 		call("action_savechunk")).leaf = true
 
-	entry({ "admin", "services", "pcdn-detect", "savecommit" },
+	entry({ "admin", "services", "pcdn-detector", "savecommit" },
 		call("action_savecommit")).leaf = true
 
-	entry({ "admin", "services", "pcdn-detect", "resetsettings" },
+	entry({ "admin", "services", "pcdn-detector", "resetsettings" },
 		call("action_resetsettings")).leaf = true
 
-	entry({ "admin", "services", "pcdn-detect", "getlog" },
+	entry({ "admin", "services", "pcdn-detector", "getlog" },
 		call("action_getlog")).leaf = true
 
-	entry({ "admin", "services", "pcdn-detect", "stats" },
+	entry({ "admin", "services", "pcdn-detector", "stats" },
 		call("action_stats")).leaf = true
 
-	entry({ "admin", "services", "pcdn-detect", "httpinfo" },
+	entry({ "admin", "services", "pcdn-detector", "httpinfo" },
 		call("action_httpinfo")).leaf = true
 
-	entry({ "admin", "services", "pcdn-detect", "httpcheck" },
+	entry({ "admin", "services", "pcdn-detector", "httpcheck" },
 		call("action_httpcheck")).leaf = true
 
-	entry({ "admin", "services", "pcdn-detect", "updateinfo" },
+	entry({ "admin", "services", "pcdn-detector", "updateinfo" },
 		call("action_updateinfo")).leaf = true
 
-	entry({ "admin", "services", "pcdn-detect", "checkupdate" },
+	entry({ "admin", "services", "pcdn-detector", "checkupdate" },
 		call("action_checkupdate")).leaf = true
 
-	entry({ "admin", "services", "pcdn-detect", "doupdate" },
+	entry({ "admin", "services", "pcdn-detector", "doupdate" },
 		call("action_doupdate")).leaf = true
 
-	entry({ "admin", "services", "pcdn-detect", "updatelog" },
+	entry({ "admin", "services", "pcdn-detector", "updatelog" },
 		call("action_updatelog")).leaf = true
 end
 
@@ -109,7 +109,7 @@ end
 local function uci_get(key, default)
 	local v = uci:get(APP, SID, key)
 	if v == nil then
-		v = uci:get(APP, "@pcdn-detect[0]", key)
+		v = uci:get(APP, "@pcdn-detector[0]", key)
 	end
 	if v == nil or v == "" then
 		return default

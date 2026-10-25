@@ -1,4 +1,4 @@
-config pcdn-detect 'main'
+config pcdn-detector 'main'
 	# 是否开机自启
 	option enabled '0'
 
