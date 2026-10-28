@@ -10,7 +10,7 @@ luci-app-pcdn-detector 控制器
 接口（全部仅登录用户可访问）：
 	status / svc / getconfig / saveconfig / resetsettings /
 	getlog / stats / httpinfo / httpcheck /
-	updateinfo / checkupdate / doupdate / updatelog
+	updateinfo / checkupdate / doupdate / updatelog / updateprefs
 
 配置编辑采用「完整文件」模式：
 	getconfig 直接返回完整 TOML，saveconfig 接收完整 TOML；
@@ -36,7 +36,12 @@ local CHECK_OUT = "/tmp/pcdn-detect.check.out"
 local UPDATE_SCRIPT = "/usr/share/pcdn-detector/update.sh"
 local UPDATE_LOG = "/tmp/pcdn-detect-update.log"
 local UPDATE_FLAG = "/tmp/pcdn-detect-update.running"
+-- 两个平台的默认仓库（内置常量，切换源 / 版本时自动回填到「代码仓库」）
 local DEFAULT_REPO = "Womsxd/pcdn-detector"
+local DEFAULT_CNB_REPO = "womsxd/pcdn-detector"
+-- CNB 仓库名大小写不敏感；CNB 没有 Release API，
+-- 只能请求 /-/releases/latest 后从目标地址取版本号。
+local CNB_ORIGIN = "https://cnb.cool"
 local INITD = "/etc/init.d/pcdn-detector"
 
 function index()
@@ -106,6 +111,9 @@ function index()
 
 	entry({ "admin", "services", "pcdn-detector", "updatelog" },
 		call("action_updatelog")).leaf = true
+
+	entry({ "admin", "services", "pcdn-detector", "updateprefs" },
+		call("action_updateprefs")).leaf = true
 end
 
 ---------------------------------------------------------------------------
@@ -1236,16 +1244,141 @@ local function allow_overwrite()
 	return uci_get("allow_overwrite", "0") == "1"
 end
 
+---------------------------------------------------------------------------
+-- 更新源 / 版本
+--
+-- 源：github / cnb；版本：go / c。
+-- GitHub 与 CNB 的默认仓库为内置常量（不写入 UCI）；
+-- 「代码仓库」留空或保持默认值时跟随当前平台，C 版本使用末尾带 -c 的仓库
+-- （如 pcdn-detector-c）。自定义仓库按填写内容原样使用（可能对应其他版本）。
+-- UCI 只记录当前源、版本与代码仓库。
+-- Release 资源名与 Go 版本完全一致（pcdn-detect-<arch>）。
+---------------------------------------------------------------------------
+
+local function update_source()
+	return uci_get("update_source", "github") == "cnb" and "cnb" or "github"
+end
+
+local function build_variant()
+	return uci_get("build_variant", "go") == "c" and "c" or "go"
+end
+
+-- C 版本仓库名：末段追加 -c（已带 -c 时不重复）
+local function variant_repo(repo, variant)
+	if variant ~= "c" then
+		return repo
+	end
+
+	local owner, name = repo:match("^([^/]+)/(.+)$")
+	if not owner then
+		return repo:find("%-c$") and repo or (repo .. "-c")
+	end
+
+	name = name:gsub("/+$", "")
+	if not name:find("%-c$") then
+		name = name .. "-c"
+	end
+	return owner .. "/" .. name
+end
+
+-- 平台默认仓库（内置，不占用 UCI 配置）
+local function platform_repo(source)
+	return source == "cnb" and DEFAULT_CNB_REPO or DEFAULT_REPO
+end
+
+-- 用户填写的仓库（空表示跟随当前平台的默认仓库）
+local function user_repo()
+	local v = uci:get(APP, SID, "repo")
+	if v == nil then
+		v = uci:get(APP, "@pcdn-detector[0]", "repo")
+	end
+	return (util.trim(v or ""):gsub("/+$", ""))
+end
+
+-- 「代码仓库」为空，或等于任一平台默认仓库（Go / C 变体）时仍视为默认；
+-- 这样切换源 / 版本后会自动回到对应平台的默认仓库。
+local function repo_is_default()
+	local repo = user_repo()
+	if repo == "" then
+		return true
+	end
+
+	for _, source in ipairs({ "github", "cnb" }) do
+		local base = platform_repo(source)
+		if repo == variant_repo(base, "go") or repo == variant_repo(base, "c") then
+			return true
+		end
+	end
+
+	return false
+end
+
+-- 实际使用的发布仓库（owner/name）
+local function release_repo(source, variant)
+	if repo_is_default() then
+		return variant_repo(platform_repo(source), variant)
+	end
+
+	return user_repo()
+end
+
+-- latest 下载前缀；自定义 download_base 优先（由用户保证路径正确）
+local function release_base(source, variant)
+	local custom = util.trim(uci_get("download_base", ""))
+	if custom ~= "" then
+		return custom:gsub("/+$", "")
+	end
+
+	local repo = release_repo(variant)
+	if source == "cnb" then
+		return CNB_ORIGIN .. "/" .. repo .. "/-/releases/latest/download"
+	end
+
+	return "https://github.com/" .. repo .. "/releases/latest/download"
+end
+
+-- Release 网页地址（页面上的「打开 Release 页面」）
+local function release_page(source, variant)
+	local repo = release_repo(variant)
+
+	if source == "cnb" then
+		return CNB_ORIGIN .. "/" .. repo .. "/-/releases"
+	end
+
+	return "https://github.com/" .. repo .. "/releases"
+end
+
+-- CNB 没有 Release API：请求 /-/releases/latest，从跳转后的地址取 tag。
+-- curl 用 -w '%{url_effective}' 跟随重定向；wget 兼容 BusyBox（无 -S /
+-- --max-redirect），直接抓取 latest 页面内容，从其中的 releases 链接解析。
+local function cnb_latest(repo)
+	local url = CNB_ORIGIN .. "/" .. repo .. "/-/releases/latest"
+
+	if fs.access("/usr/bin/curl") or fs.access("/bin/curl") then
+		local out = util.exec("curl -fsSL -o /dev/null -w '%{url_effective}' --connect-timeout 10 --max-time 20 "
+			.. util.q(url) .. " 2>/dev/null")
+		return out:match("/releases/tag/([%w%._%-]+)")
+	end
+
+	if fs.access("/usr/bin/wget") or fs.access("/bin/wget") then
+		local out = util.exec("wget -qO- -T 20 " .. util.q(url) .. " 2>/dev/null")
+		local tag = out:match("/releases/tag/([%w%._%-]+)")
+		if not tag then
+			-- 页面里也可能只出现附件路径：/-/releases/download/<tag>/<asset>
+			tag = out:match("/releases/download/([%w%._%-]+)/")
+		end
+		return tag
+	end
+
+	return nil
+end
+
 function action_updateinfo()
 	local arch, pkg_arch = detect_arch()
-	local repo = uci_get("repo", DEFAULT_REPO)
-	local base = uci_get("download_base", "")
-
-	if base == "" then
-		base = "https://github.com/" .. repo .. "/releases/latest/download"
-	end
-	base = base:gsub("/+$", "")
-
+	local source = update_source()
+	local variant = build_variant()
+	local repo = release_repo(source, variant)
+	local base = release_base(source, variant)
 	local asset = "pcdn-detect-" .. arch
 	local current = util.version_of(bin_path())
 	local current_base, current_build = util.version_parts(current)
@@ -1253,9 +1386,20 @@ function action_updateinfo()
 
 	reply_json({
 		ok = true,
+		source = source,
+		variant = variant,
 		arch = arch,
 		pkg_arch = pkg_arch,
 		repo = repo,
+		repo_custom = not repo_is_default(),
+		-- 供前端切换源 / 版本时回填输入框（自定义仓库不回填）
+		repo_choices = {
+			github = variant_repo(platform_repo("github"), "go"),
+			github_c = variant_repo(platform_repo("github"), "c"),
+			cnb = variant_repo(platform_repo("cnb"), "go"),
+			cnb_c = variant_repo(platform_repo("cnb"), "c"),
+		},
+		release_page = release_page(source, variant),
 		base = base,
 		asset = asset,
 		url = base .. "/" .. asset,
@@ -1277,11 +1421,52 @@ function action_updateinfo()
 end
 
 function action_checkupdate()
-	local repo = uci_get("repo", DEFAULT_REPO)
+	local source = update_source()
+	local variant = build_variant()
+	local repo = release_repo(source, variant)
+	local has_curl = fs.access("/usr/bin/curl") or fs.access("/bin/curl")
+	local has_wget = fs.access("/usr/bin/wget") or fs.access("/bin/wget")
+
+	if not has_curl and not has_wget then
+		reply_json({
+			ok = false,
+			source = source,
+			variant = variant,
+			repo = repo,
+			message = "系统缺少 curl 与 wget，无法检查最新版本。",
+		})
+		return
+	end
+
+	if source == "cnb" then
+		local latest = cnb_latest(repo)
+
+		if latest then
+			reply_json({
+				ok = true,
+				latest = latest,
+				source = source,
+				variant = variant,
+				repo = repo,
+				release_page = release_page(source, variant),
+			})
+		else
+			reply_json({
+				ok = false,
+				source = source,
+				variant = variant,
+				repo = repo,
+				message = "无法获取最新版本：CNB Release 页面不可访问，或仓库（" .. repo
+					.. "）还没有 Release。可直接使用下方地址下载。",
+			})
+		end
+		return
+	end
+
 	local api = "https://api.github.com/repos/" .. repo .. "/releases/latest"
 	local cmd
 
-	if fs.access("/usr/bin/curl") or fs.access("/bin/curl") then
+	if has_curl then
 		cmd = "curl -fsSL --connect-timeout 10 " .. util.q(api) .. " 2>/dev/null"
 	else
 		cmd = "wget -qO- " .. util.q(api) .. " 2>/dev/null"
@@ -1291,14 +1476,59 @@ function action_checkupdate()
 	local tag = body and body:match('"tag_name"%s*:%s*"([^"]+)"')
 
 	if tag then
-		reply_json({ ok = true, latest = tag, repo = repo })
+		reply_json({
+			ok = true,
+			latest = tag,
+			source = source,
+			variant = variant,
+			repo = repo,
+			release_page = release_page(source, variant),
+		})
 	else
 		reply_json({
 			ok = false,
+			source = source,
+			variant = variant,
 			repo = repo,
 			message = "无法获取最新版本：仓库可能没有 Release，或当前网络无法访问 GitHub。可直接使用下方地址下载。",
 		})
 	end
+end
+
+function action_updateprefs()
+	local source = util.trim(http.formvalue("source") or "")
+	local variant = util.trim(http.formvalue("variant") or "")
+
+	if source ~= "" and source ~= "github" and source ~= "cnb" then
+		reply_json({ ok = false, message = "未知的更新源" })
+		return
+	end
+	if variant ~= "" and variant ~= "go" and variant ~= "c" then
+		reply_json({ ok = false, message = "未知的版本类型" })
+		return
+	end
+
+	-- 仍使用默认仓库时，把「代码仓库」同步为新源 / 版本对应的默认值；
+	-- 自定义仓库保持不变（两个源共用自定义值）。
+	local was_default = repo_is_default()
+
+	if source ~= "" then
+		uci:set(APP, SID, "update_source", source)
+	end
+	if variant ~= "" then
+		uci:set(APP, SID, "build_variant", variant)
+	end
+	if was_default then
+		uci:set(APP, SID, "repo", variant_repo(platform_repo(update_source()), build_variant()))
+	end
+	uci:commit(APP)
+
+	reply_json({
+		ok = true,
+		source = update_source(),
+		variant = build_variant(),
+		repo = release_repo(update_source(), build_variant()),
+	})
 end
 
 local function valid_download_url(url)

@@ -2,7 +2,16 @@
 
 「下载/更新」页用于安装 `pcdn-detect` 二进制；LuCI 应用本身见[安装](install.md)。
 
-默认按 `https://github.com/<repo>/releases/latest/download/pcdn-detect-<arch>` 推导地址，资源命名与上游 Makefile 产物一致：
+页面顶部可选择更新源与版本：
+
+| 选项 | 取值 | 仓库 / 下载前缀 |
+| --- | --- | --- |
+| 更新源 | `GitHub` | `https://github.com/<repo>/releases/latest/download` |
+| 更新源 | `CNB` | `https://cnb.cool/<repo>/-/releases/latest/download` |
+| 版本 | `Go` | 默认仓库 `pcdn-detector` |
+| 版本 | `C` | 默认仓库 `pcdn-detector-c`，Release 资源名与 Go 版本一致 |
+
+Release 资源名与上游 Makefile 产物一致：
 
 | 设备架构（opkg） | 资源名 |
 | --- | --- |
@@ -12,10 +21,14 @@
 | `arm_*`（armv7） | `pcdn-detect-armv7` |
 | `x86_64` | `pcdn-detect-amd64` |
 
-若仓库没有公开 Release、使用私有仓库或需要走镜像：
+自定义仓库或镜像：
 
-- 在「下载/更新 → 下载源」中修改仓库名，或设置「下载地址前缀」；
-- 也可以直接在页面顶部填写完整的 http(s) 地址（需为未压缩的 ELF 二进制）；
+- GitHub 与 CNB 的默认仓库由程序内置（GitHub `Womsxd/pcdn-detector`，CNB `womsxd/pcdn-detector`），切换源或版本时「代码仓库」会自动回填对应路径并同步到配置。
+- 「代码仓库」留空或保持默认值即跟随当前平台的默认仓库，C 版本使用末尾带 `-c` 的仓库（`pcdn-detector-c`）。
+- 填写其他值即视为自定义仓库，原样使用（两个源共用该值，不再自动切换 Go / C）。
+- 设置「下载地址前缀」可覆盖自动推导的前缀（资源名仍会自动追加）；也可以直接在页面顶部填写完整的 http(s) 地址（需为未压缩的 ELF 二进制）。
+
+版本检查：GitHub 源请求 `https://api.github.com/repos/<repo>/releases/latest` 读取 `tag_name`；CNB 没有可用的 Release API，改为请求 `https://cnb.cool/<repo>/-/releases/latest`，从 302 的目标地址（`/releases/tag/<tag>`）中取版本号。
 
 架构识别顺序：`opkg print-architecture`（opkg 系统）→ `apk --print-arch`（apk 系统，24.10+）→ `uname -m` 兜底。
 

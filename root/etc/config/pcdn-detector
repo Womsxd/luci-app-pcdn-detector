@@ -12,7 +12,15 @@ config pcdn-detector 'main'
 	# 命令行参数优先级高于 TOML 配置文件
 	option extra_args ''
 
-	# 下载源：GitHub 仓库（用于推导 Release 下载地址与版本检查）
+	# 更新检查 / 下载源：github 或 cnb
+	option update_source 'github'
+
+	# 二进制版本：go 或 c
+	# C 版本使用末尾带 -c 的默认仓库（如 pcdn-detector-c），资源名与 Go 版本一致
+	option build_variant 'go'
+
+	# 代码仓库：记录当前使用的仓库；默认仓库由程序内置（GitHub / CNB 不同），
+	# 切换源或版本时会自动回填并同步到该项；填写自定义仓库后原样使用
 	option repo 'Womsxd/pcdn-detector'
 
 	# 可选：完整覆盖下载地址前缀（如使用镜像 / 私有地址）

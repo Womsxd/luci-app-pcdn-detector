@@ -19,6 +19,15 @@
 	}
 	.pcdn-up-item span { display: block; font-size: 12px; opacity: 0.7; margin-bottom: 4px; }
 	.pcdn-up-item strong { display: block; font-size: 14px; word-break: break-all; }
+	.pcdn-up-prefs {
+		display: flex;
+		flex-wrap: wrap;
+		gap: 10px;
+		align-items: center;
+		margin: 0 0 10px;
+		font-size: 13px;
+	}
+	.pcdn-up-prefs select { font-size: 13px; padding: 1px 4px; }
 	.pcdn-up-url { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin: 8px 0; }
 	.pcdn-up-url input { flex: 1 1 420px; min-width: 220px; }
 	.pcdn-up-actions .cbi-button { margin-right: 6px; margin-bottom: 6px; }
@@ -84,10 +93,28 @@
 	</div>
 </div>
 
+<div class="pcdn-up-prefs">
+	<label for="pcdn-up-source">更新源
+		<select class="cbi-input-select" id="pcdn-up-source">
+			<option value="github">GitHub</option>
+			<option value="cnb">CNB</option>
+		</select>
+	</label>
+	<label for="pcdn-up-variant">版本
+		<select class="cbi-input-select" id="pcdn-up-variant">
+			<option value="go">Go 版</option>
+			<option value="c">C 版</option>
+		</select>
+	</label>
+	<span class="pcdn-note" id="pcdn-up-prefs-note"></span>
+</div>
+
 <p class="cbi-value-description">
-	下载地址默认按「GitHub 仓库 + 设备架构」推导，Release 资源名形如
-	<code>pcdn-detect-mipsle</code>、<code>pcdn-detect-arm64</code>。项目尚未发布正式版时该地址可能不可用，
-	直接修改下方完整地址即可（需为未压缩的 ELF 二进制）。安装后会自动执行 <code>-v</code> 自检，失败回滚旧版本。
+	下载地址按「更新源 + 版本 + 设备架构」推导，Release 资源名形如
+	<code>pcdn-detect-mipsle</code>、<code>pcdn-detect-arm64</code>（Go / C 版本一致）。
+	GitHub / CNB 的默认仓库由程序内置，切换更新源或版本时「代码仓库」会自动回填对应路径（C 版本为 <code>pcdn-detector-c</code>）；
+	留空或保持默认即跟随平台默认，自定义仓库按填写内容原样使用。
+	也可直接修改下方完整地址（需为未压缩的 ELF 二进制）。安装后会自动执行 <code>-v</code> 自检，失败回滚旧版本。
 </p>
 
 <div class="pcdn-up-url">
@@ -99,7 +126,7 @@
 <div class="pcdn-up-actions">
 	<button type="button" class="cbi-button cbi-button-action" id="pcdn-up-check">检查最新版本</button>
 	<button type="button" class="cbi-button cbi-button-apply" id="pcdn-up-install">下载并安装</button>
-	<a class="cbi-button cbi-button-neutral" id="pcdn-up-github" href="#" target="_blank" rel="noopener noreferrer">打开 GitHub Release</a>
+	<a class="cbi-button cbi-button-neutral" id="pcdn-up-release" href="#" target="_blank" rel="noopener noreferrer">打开 Release 页面</a>
 </div>
 
 <p id="pcdn-up-msg" class="pcdn-up-msg"></p>
@@ -112,7 +139,8 @@
 		info: '<%=url("admin", "services", "pcdn-detector", "updateinfo")%>',
 		check: '<%=url("admin", "services", "pcdn-detector", "checkupdate")%>',
 		run: '<%=url("admin", "services", "pcdn-detector", "doupdate")%>',
-		log: '<%=url("admin", "services", "pcdn-detector", "updatelog")%>'
+		log: '<%=url("admin", "services", "pcdn-detector", "updatelog")%>',
+		prefs: '<%=url("admin", "services", "pcdn-detector", "updateprefs")%>'
 	};
 
 	var info = {};
@@ -166,6 +194,17 @@
 	}
 
 	function $(id) { return document.getElementById(id); }
+
+	function sourceLabel(s) { return s === 'cnb' ? 'CNB' : 'GitHub'; }
+	function variantLabel(v) { return v === 'c' ? 'C 版' : 'Go 版'; }
+
+	// 输入框当前值是否仍属于「平台默认仓库」（含 Go / C 变体）
+	function isDefaultRepo(value) {
+		if (!value) return true;
+		var c = info.repo_choices || {};
+		return value === c.github || value === c.github_c
+			|| value === c.cnb || value === c.cnb_c;
+	}
 
 	function fmtKB(kb) {
 		kb = Number(kb || 0);
@@ -227,12 +266,27 @@
 
 			renderSpace(d);
 
+			var selSource = $('pcdn-up-source');
+			var selVariant = $('pcdn-up-variant');
+			if (selSource && d.source) selSource.value = d.source;
+			if (selVariant && d.variant) selVariant.value = d.variant;
+
+			var note = $('pcdn-up-prefs-note');
+			if (note) note.textContent = d.repo ? ('仓库：' + d.repo) : '';
+
+			// 未自定义时，把「代码仓库」输入框回填为当前源 / 版本的默认仓库；
+			// 输入框里已有未保存的自定义值时不覆盖
+			var repoInput = document.querySelector('input[id$=".repo"]');
+			if (repoInput && !d.repo_custom && isDefaultRepo(repoInput.value)) {
+				repoInput.value = d.repo || '';
+			}
+
 			if (!urlEdited || !$('pcdn-up-url').value) {
 				$('pcdn-up-url').value = d.url || '';
 			}
 
-			var gh = 'https://github.com/' + (d.repo || '');
-			$('pcdn-up-github').href = gh + '/releases';
+			var page = $('pcdn-up-release');
+			if (page) page.href = d.release_page || '#';
 
 			// quiet：更新完成后刷新信息时不要覆盖“更新完成/更新失败”的提示
 			if (quiet) return;
@@ -274,6 +328,29 @@
 		});
 	}
 
+	function savePrefs() {
+		var source = $('pcdn-up-source').value;
+		var variant = $('pcdn-up-variant').value;
+
+		showMsg('正在保存更新源…', true);
+		xhrPost(U.prefs, { source: source, variant: variant }, function(x, d) {
+			if (!d || !d.ok) {
+				showMsg((d && d.message) || '保存更新源失败', false);
+				// 保存失败时把下拉恢复为服务端当前值
+				loadInfo(true);
+				return;
+			}
+
+			// 源或版本变化后重新使用推荐地址，不再沿用手填的旧地址
+			urlEdited = false;
+			loadInfo();
+			showMsg('已选择：' + sourceLabel(d.source) + ' · ' + variantLabel(d.variant), true);
+		});
+	}
+
+	$('pcdn-up-source').onchange = savePrefs;
+	$('pcdn-up-variant').onchange = savePrefs;
+
 	$('pcdn-up-url').oninput = function() {
 		urlEdited = true;
 	};
@@ -288,7 +365,9 @@
 		showMsg('正在检查最新版本…', true);
 		XHR.get(U.check, null, function(x, d) {
 			if (d && d.ok) {
-				showMsg('最新版本：' + d.latest + '（当前：' + (info.current || '未知') + '）', true);
+				showMsg('最新版本：' + d.latest + '（当前：' + (info.current || '未知') + '，'
+					+ sourceLabel(d.source || info.source) + ' · '
+					+ variantLabel(d.variant || info.variant) + '）', true);
 			} else {
 				showMsg((d && d.message) || '检查失败', false);
 			}
@@ -308,6 +387,8 @@
 		}
 
 		if (!confirm('将下载并安装到：\n' + (info.bin_path || '/usr/bin/pcdn-detect')
+			+ (info.repo ? ('\n来源：' + sourceLabel(info.source) + ' · '
+				+ variantLabel(info.variant) + '（' + info.repo + '）') : '')
 			+ '\n\n安装完成后服务会自动重启，继续？')) {
 			return;
 		}

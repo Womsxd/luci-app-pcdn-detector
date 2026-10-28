@@ -11,7 +11,7 @@
 #   overwrite  两者都不足        ：先删除旧程序再原地下载；需显式允许，失败无法回滚
 #
 # 其他说明：
-#   - 下载后校验 ELF 头与文件大小，安装后执行 -v 自检，失败自动回滚；
+#   - 下载后校验文件大小并直接执行 --version 预检，安装后执行 -v 自检，失败自动回滚；
 #   - 备份用 rename 完成，不额外占用闪存空间；更新成功后删除临时文件与备份；
 #   - 进度写入 /tmp/pcdn-detect-update.log，供 LuCI 轮询；
 #   - 运行中的服务在更新成功后自动重启（需 enabled=1）。
@@ -215,8 +215,18 @@ log "下载完成：$SIZE 字节"
 
 [ "$SIZE" -ge 200000 ] || fail "文件过小（$SIZE 字节），可能不是 pcdn-detect 二进制"
 
-MAGIC="$(head -c 4 "$TMP" | od -An -tx1 | tr -d ' \n')"
-[ "$MAGIC" = "7f454c46" ] || fail "文件不是 ELF 可执行文件（可能是错误页面或文件损坏）"
+# 预检：直接执行下载文件（优先 --version，回退 -v），不再依赖 od / hexdump。
+# 能运行即可确认架构匹配、文件完整；部分固件的 /tmp 挂载为 noexec，
+# 预检失败不算错误，安装到目标目录后还有一次 -v 自检与回滚。
+chmod 0755 "$TMP" 2>/dev/null
+if PRE_VERSION="$("$TMP" --version 2>&1)" || PRE_VERSION="$("$TMP" -v 2>&1)"; then
+	log "预检通过：$PRE_VERSION"
+elif [ "$MODE" = "overwrite" ]; then
+	# 覆盖模式会先删除旧程序，预检失败必须停止，否则无法回滚
+	fail "下载文件无法执行（可能是错误页面、架构不匹配，或目标分区为 noexec）"
+else
+	log "预检未能执行下载文件（可能是 /tmp 为 noexec 或架构不匹配），安装后继续自检"
+fi
 
 STAGE="$TMP"
 if [ "$MODE" = "tmp" ]; then
