@@ -688,9 +688,6 @@
 
 		if (devicesError) {
 			html += '<p class="pcdn-muted" style="margin:6px 0 0;">' + esc(devicesError) + '</p>';
-		} else {
-			html += '<p class="pcdn-muted" style="margin:6px 0 0;">'
-				+ '汇总接口不包含端口明细；点击「端口明细」按需读取 /api/v1/device（对端 IP 走 /api/v1/peers）。</p>';
 		}
 
 		box.innerHTML = html;

@@ -30,7 +30,6 @@ o.description = translate("pcdn-detect 可执行文件路径，可在「下载/�
 
 o = s:option(Value, "extra_args", translate("附加启动参数"))
 o.rmempty = true
-o.placeholder = "-i br-lan -n 30 -t 60s"
 o.description = translate("可选，按空格拆分后追加到启动命令。命令行参数优先于 TOML 配置文件。")
 
 o = s:option(Flag, "direct_api", translate("直连后端 API（绕过 LuCI 代理）"))

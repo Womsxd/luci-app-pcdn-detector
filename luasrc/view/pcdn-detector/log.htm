@@ -80,7 +80,6 @@
 		<button type="button" class="cbi-button cbi-button-neutral" id="pcdn-log-pause">暂停</button>
 		<button type="button" class="cbi-button cbi-button-neutral" id="pcdn-log-clear">清空显示</button>
 		<button type="button" class="cbi-button cbi-button-neutral" id="pcdn-log-download">下载日志</button>
-		<button type="button" class="cbi-button cbi-button-neutral" id="pcdn-log-alert">只看 PCDN 告警</button>
 	</div>
 
 	<pre id="pcdn-log" class="pcdn-log">加载中…</pre>
@@ -224,11 +223,6 @@
 		a.click();
 		document.body.removeChild(a);
 		URL.revokeObjectURL(a.href);
-	};
-
-	$('pcdn-log-alert').onclick = function() {
-		$('pcdn-log-keyword').value = 'PCDN';
-		refresh();
 	};
 
 	$('pcdn-log-keyword').onkeydown = function(ev) {
