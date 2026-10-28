@@ -6,30 +6,31 @@
 	.pcdn-cfg-head {
 		margin: 0 0 10px 0;
 		padding: 8px 10px;
-		background: #f7f7f7;
-		border: 1px solid #e3e3e3;
+		background: rgba(128, 128, 128, 0.07);
+		border: 1px solid rgba(128, 128, 128, 0.3);
 		border-radius: 4px;
+		color: inherit;
 		font-size: 13px;
 		word-break: break-all;
 	}
 	.pcdn-cfg-pos {
 		margin-left: 10px;
-		color: #666;
+		opacity: 0.7;
 	}
 	.pcdn-editor-wrap {
 		display: flex;
 		align-items: stretch;
 		height: 520px;
-		border: 1px solid #ccc;
+		border: 1px solid rgba(128, 128, 128, 0.35);
 		border-radius: 3px;
 		overflow: hidden;
 	}
 	.pcdn-gutter {
 		flex: 0 0 auto;
 		overflow: hidden;
-		background: rgba(0, 0, 0, 0.045);
-		border-right: 1px solid rgba(0, 0, 0, 0.1);
-		color: #999;
+		background: rgba(128, 128, 128, 0.1);
+		border-right: 1px solid rgba(128, 128, 128, 0.25);
+		color: inherit;
 		-webkit-user-select: none;
 		-moz-user-select: none;
 		user-select: none;
@@ -44,8 +45,13 @@
 		white-space: pre;
 		will-change: transform;
 	}
-	.pcdn-gutter-line { display: block; }
-	.pcdn-gutter-cur { color: #1565c0; font-weight: bold; }
+	.pcdn-gutter-line { display: block; opacity: 0.55; }
+	.pcdn-gutter-cur {
+		color: #1565c0;
+		color: color-mix(in srgb, #1565c0 65%, currentColor);
+		font-weight: bold;
+		opacity: 1;
+	}
 	.pcdn-editor {
 		flex: 1 1 auto;
 		width: auto;
@@ -58,6 +64,9 @@
 		border: 0;
 		outline: none;
 		resize: none;
+		/* 编辑区跟随页面底色与正文色，避免暗色主题下残留主题的浅色输入框 */
+		background: transparent;
+		color: inherit;
 		font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
 		font-size: 12px;
 		line-height: 18px;
@@ -78,9 +87,24 @@
 		max-height: 260px;
 		overflow: auto;
 	}
-	.pcdn-result.ok { display: block; background: #e8f5e9; border: 1px solid #a5d6a7; color: #2e7d32; }
-	.pcdn-result.err { display: block; background: #ffebee; border: 1px solid #ef9a9a; color: #c62828; }
-	.pcdn-dirty { color: #ef6c00; }
+	.pcdn-result.ok {
+		display: block;
+		background: rgba(76, 175, 80, 0.15);
+		border: 1px solid rgba(76, 175, 80, 0.5);
+		color: #2e7d32;
+		color: color-mix(in srgb, #2e7d32 65%, currentColor);
+	}
+	.pcdn-result.err {
+		display: block;
+		background: rgba(244, 67, 54, 0.15);
+		border: 1px solid rgba(244, 67, 54, 0.5);
+		color: #c62828;
+		color: color-mix(in srgb, #c62828 65%, currentColor);
+	}
+	.pcdn-dirty {
+		color: #ef6c00;
+		color: color-mix(in srgb, #ef6c00 65%, currentColor);
+	}
 </style>
 
 <div class="pcdn-cfg-head">

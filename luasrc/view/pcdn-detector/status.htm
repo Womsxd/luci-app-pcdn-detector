@@ -3,6 +3,9 @@
 -%>
 
 <style>
+	/* 配色说明：容器底色 / 边框 / 次要文字统一用半透明中性色（rgba(128,128,128,x)）
+	   与 opacity，避免暗色主题下写死的浅色底压住主题的浅色文字；
+	   语义色（红 / 橙 / 绿）用半透明底色，文字色与主题正文色 color-mix 后自适应明暗。 */
 	.pcdn-status {
 		display: flex;
 		flex-wrap: wrap;
@@ -13,14 +16,14 @@
 		flex: 1 1 150px;
 		min-width: 140px;
 		padding: 8px 10px;
-		border: 1px solid #d9d9d9;
+		border: 1px solid rgba(128, 128, 128, 0.35);
 		border-radius: 4px;
-		background: #fafafa;
+		background: rgba(128, 128, 128, 0.07);
 	}
 	.pcdn-label {
 		display: block;
 		font-size: 12px;
-		color: #777;
+		opacity: 0.7;
 		margin-bottom: 4px;
 	}
 	.pcdn-value {
@@ -29,9 +32,11 @@
 		font-weight: bold;
 		word-break: break-all;
 	}
-	.pcdn-ok { color: #2e7d32; }
-	.pcdn-bad { color: #c62828; }
-	.pcdn-muted { color: #888; font-weight: normal; }
+	/* 语义文字色与当前正文色混合：亮色主题下接近原色，暗色主题下自动提亮；
+	   不支持 color-mix 的浏览器沿用前一条固定色 */
+	.pcdn-ok { color: #2e7d32; color: color-mix(in srgb, #2e7d32 65%, currentColor); }
+	.pcdn-bad { color: #c62828; color: color-mix(in srgb, #c62828 65%, currentColor); }
+	.pcdn-muted { opacity: 0.7; font-weight: normal; }
 	.pcdn-actions { margin: 10px 0; }
 	.pcdn-actions .cbi-button { margin-right: 6px; margin-bottom: 4px; }
 	.pcdn-msg {
@@ -41,8 +46,20 @@
 		display: none;
 		white-space: pre-wrap;
 	}
-	.pcdn-msg-ok { display: block; background: #e8f5e9; color: #2e7d32; border: 1px solid #a5d6a7; }
-	.pcdn-msg-bad { display: block; background: #ffebee; color: #c62828; border: 1px solid #ef9a9a; }
+	.pcdn-msg-ok {
+		display: block;
+		background: rgba(76, 175, 80, 0.15);
+		border: 1px solid rgba(76, 175, 80, 0.5);
+		color: #2e7d32;
+		color: color-mix(in srgb, #2e7d32 65%, currentColor);
+	}
+	.pcdn-msg-bad {
+		display: block;
+		background: rgba(244, 67, 54, 0.15);
+		border: 1px solid rgba(244, 67, 54, 0.5);
+		color: #c62828;
+		color: color-mix(in srgb, #c62828 65%, currentColor);
+	}
 	.pcdn-stats-cards {
 		display: flex;
 		flex-wrap: wrap;
@@ -52,28 +69,33 @@
 	.pcdn-stat {
 		flex: 1 1 110px;
 		padding: 8px 10px;
-		border: 1px solid #e0e0e0;
+		border: 1px solid rgba(128, 128, 128, 0.25);
 		border-radius: 4px;
 		text-align: center;
 	}
 	.pcdn-stat b { display: block; font-size: 20px; line-height: 1.4; }
-	.pcdn-stat span { font-size: 12px; color: #777; }
-	.pcdn-table { width: 100%; border-collapse: collapse; }
+	.pcdn-stat span { font-size: 12px; opacity: 0.7; }
+	.pcdn-table { width: 100%; border-collapse: collapse; background: transparent; }
 	.pcdn-table th, .pcdn-table td {
 		padding: 4px 6px;
-		border-bottom: 1px solid #eee;
+		border-bottom: 1px solid rgba(128, 128, 128, 0.22);
 		text-align: left;
 		font-size: 13px;
+		/* 显式继承，避免主题给表格写死深色文字后，在暗色弹窗里变成深字压深底 */
+		color: inherit;
+		background: transparent;
 	}
-	.pcdn-table th { background: #f5f5f5; }
-	.pcdn-table tr.pcdn-alert td { background: #fff3e0; }
-	.pcdn-empty { color: #999; text-align: center !important; }
+	.pcdn-table th { background: rgba(128, 128, 128, 0.14); }
+	/* 告警行用半透明橙：亮色下接近原来的浅橙，暗色下是暗橙，不刺眼也不会压掉文字 */
+	.pcdn-table tr.pcdn-alert td { background: rgba(255, 152, 0, 0.16); }
+	.pcdn-empty { opacity: 0.6; text-align: center !important; }
 	.pcdn-detail {
 		margin-top: 12px;
 		padding: 10px;
-		border: 1px solid #e0e0e0;
+		border: 1px solid rgba(128, 128, 128, 0.3);
 		border-radius: 4px;
-		background: #fcfcfc;
+		background: rgba(128, 128, 128, 0.06);
+		color: inherit;
 	}
 	.pcdn-detail-head {
 		display: flex;
@@ -95,14 +117,32 @@
 	.pcdn-badge {
 		display: inline-block;
 		padding: 0 6px;
+		border: 1px solid transparent;
 		border-radius: 9px;
 		font-size: 11px;
-		line-height: 18px;
+		line-height: 16px;
+		/* 徽章文字基于主题正文色混合，亮 / 暗主题下都有足够对比度 */
+		color: inherit;
 		white-space: nowrap;
 	}
-	.pcdn-badge-ban { background: #ffebee; color: #c62828; }
-	.pcdn-badge-alert { background: #fff3e0; color: #e65100; }
-	.pcdn-badge-ok { background: #e8f5e9; color: #2e7d32; }
+	.pcdn-badge-ban {
+		background: rgba(198, 40, 40, 0.18);
+		border-color: rgba(198, 40, 40, 0.55);
+		color: #c62828;
+		color: color-mix(in srgb, #c62828 65%, currentColor);
+	}
+	.pcdn-badge-alert {
+		background: rgba(230, 81, 0, 0.2);
+		border-color: rgba(230, 81, 0, 0.6);
+		color: #e65100;
+		color: color-mix(in srgb, #e65100 65%, currentColor);
+	}
+	.pcdn-badge-ok {
+		background: rgba(46, 125, 50, 0.18);
+		border-color: rgba(46, 125, 50, 0.55);
+		color: #2e7d32;
+		color: color-mix(in srgb, #2e7d32 65%, currentColor);
+	}
 	.pcdn-pager {
 		display: flex;
 		flex-wrap: wrap;
@@ -123,9 +163,10 @@
 	.pcdn-peers {
 		margin-top: 10px;
 		padding: 8px 10px;
-		border: 1px dashed #cfcfcf;
+		border: 1px dashed rgba(128, 128, 128, 0.35);
 		border-radius: 4px;
-		background: #fafafa;
+		background: rgba(128, 128, 128, 0.06);
+		color: inherit;
 	}
 	.pcdn-peers-list {
 		font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
