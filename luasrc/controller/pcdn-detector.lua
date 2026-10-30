@@ -1329,7 +1329,7 @@ local function release_base(source, variant)
 		return custom:gsub("/+$", "")
 	end
 
-	local repo = release_repo(variant)
+	local repo = release_repo(source, variant)
 	if source == "cnb" then
 		return CNB_ORIGIN .. "/" .. repo .. "/-/releases/latest/download"
 	end
@@ -1339,7 +1339,7 @@ end
 
 -- Release 网页地址（页面上的「打开 Release 页面」）
 local function release_page(source, variant)
-	local repo = release_repo(variant)
+	local repo = release_repo(source, variant)
 
 	if source == "cnb" then
 		return CNB_ORIGIN .. "/" .. repo .. "/-/releases"
