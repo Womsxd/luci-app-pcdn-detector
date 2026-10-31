@@ -80,20 +80,6 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # SDK 模式解压 + 编译约需 10 GiB，先清理 runner 上占用较大的预装组件
-      - name: Free disk space
-        run: |
-          set -euo pipefail
-          sudo rm -rf \
-            /usr/share/dotnet \
-            /usr/local/lib/android \
-            /opt/ghc \
-            /opt/hostedtoolcache/CodeQL \
-            /usr/local/share/boost \
-            /usr/local/graalvm
-          sudo apt-get clean
-          df -h /
-
       - name: Install build dependencies
         run: |
           set -euo pipefail
@@ -228,7 +214,7 @@ jobs:
             | 构建版本 | ${{ inputs.versions }} |
             | 提交 | `${{ github.sha }}` |
 
-            - `.ipk`：opkg 构建树（21.02 ~ 24.10；24.10 的 apk 开关在上游仍标记为 BROKEN）
+            - `.ipk`：opkg 构建树（21.02 ~ 24.10）
             - `.apk`：apk 构建树（25.12 及更新）
             - 包为 `PKGARCH:=all`（纯脚本），可安装到任意设备架构
             - `pcdn-detect` 二进制不在本包内，请在「服务 → PCDN 检测 → 下载/更新」中按架构安装
