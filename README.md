@@ -53,7 +53,7 @@ ssh root@192.168.1.1 'chmod +x /usr/bin/pcdn-detect && /usr/bin/pcdn-detect -v'
 .
 ├── Makefile                  # OpenWrt 打包
 ├── luasrc/                   # LuCI 控制器、CBI 页面、视图
-├── root/                     # UCI 配置、procd 服务脚本、更新脚本
+├── root/                     # UCI 配置模板、procd 服务脚本、更新脚本
 ├── po/zh-cn/                 # 中文翻译
 ├── docs/                     # 文档
 └── scripts/build-openwrt.sh  # 本地编译 ipk / apk

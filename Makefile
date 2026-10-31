@@ -52,9 +52,14 @@ endef
 define Build/Compile
 endef
 
-define Package/luci-app-pcdn-detector/conffiles
-/etc/config/pcdn-detector
-endef
+# /etc/config/pcdn-detector 不再随包安装，也不注册为 conffile。
+# 页面会把「更新源 / 版本 / 仓库 / 开机自启」等写回该文件，升级时它必然与包内
+# 默认值不同，进而触发
+#   resolve_conffiles: Existing conffile /etc/config/pcdn-detector is different ...
+# 以及 /etc/config/pcdn-detector-opkg 副本（apk 则是 .apk-new）。
+# 现在默认值作为普通文件放在 /usr/share/pcdn-detector/pcdn-detector.config，
+# 由 postinst / uci-defaults 在文件缺失时创建：升级保留用户设置，
+# 也不会再出现 conffile 冲突提示。
 
 define Package/luci-app-pcdn-detector/install
 	$(INSTALL_DIR) $(1)/usr/lib/lua/luci
@@ -70,10 +75,23 @@ endef
 define Package/luci-app-pcdn-detector/postinst
 #!/bin/sh
 if [ -z "$${IPKG_INSTROOT}" ]; then
+	# 默认 UCI 配置以模板形式随包安装（/usr/share 下，非 conffile）：
+	# 仅在文件缺失时创建（首次安装 / 用户手动删除），升级保留现有设置。
+	cfg="/etc/config/pcdn-detector"
+	if [ ! -s "$$cfg" ]; then
+		# 旧版本把该文件当作 conffile 发布：opkg 在升级前会把用户改过的内容
+		# 备份为 <文件>-opkg，随后删除旧包独有的文件。这里优先恢复备份，
+		# 避免从 conffile 版本升级时丢失用户设置。
+		if [ -s "$$cfg-opkg" ]; then
+			mv -f "$$cfg-opkg" "$$cfg"
+		else
+			cp -f /usr/share/pcdn-detector/pcdn-detector.config "$$cfg"
+		fi
+	fi
+	# 旧版本升级时可能残留的 conffile 副本
+	rm -f "$$cfg-opkg"
+
 	/etc/init.d/pcdn-detector enable >/dev/null 2>&1
-	# conffile 冲突时 opkg 会把新默认配置写成 <文件>-opkg；以用户现有配置为准，
-	# 删除副本，避免 /etc/config 下堆积无用文件。
-	rm -f /etc/config/pcdn-detector-opkg
 	rm -f /tmp/luci-indexcache
 	rm -rf /tmp/luci-modulecache
 fi
@@ -94,23 +112,15 @@ if [ -x /etc/init.d/pcdn-detector ]; then
 	/etc/init.d/pcdn-detector disable || true
 fi
 
-if command -v uci >/dev/null 2>&1; then
-	uci -q batch <<-EOF || true
-		delete ucitrack.@pcdn-detector[-1]
-		commit ucitrack
-	EOF
-fi
-
-# 不能在这里删 conffile：opkg 随后还要计算它的 sha256，
-# 文件提前消失会报 "file_sha256sum_alloc: Failed to open file ..."。
-# 删除动作交给 postrm。
+# 不再清理 /etc/config/ucitrack：该文件在 19.07+ 已废弃，包内也不再写入。
+# UCI 配置不是 conffile，删除动作交给 postrm：升级时旧包的 prerm 也会执行，
+# 集中在一处处理更不容易误删用户设置。
 exit 0
 endef
 
 define Package/luci-app-pcdn-detector/postrm
 #!/bin/sh
-# 卸载完成后再删 UCI 配置：prerm 阶段删除会让 opkg 处理 conffile 时报
-# "file_sha256sum_alloc: Failed to open file ..."。
+# UCI 配置由 postinst 创建、不随包安装（非 conffile）：卸载时手动删除；
 # 升级（PKG_UPGRADE=1）保留用户设置。
 [ -n "$${IPKG_INSTROOT}" ] && exit 0
 

@@ -4,13 +4,20 @@
 # 默认 TOML 不再随包提供：首次启动服务（或首次打开配置页）时由 pcdn-detect
 # 自己生成，内容取自二进制内置模板，可随上游版本更新。
 
-# 注册 ucitrack，保证 UCI 变更后能触发服务 reload
-uci -q batch <<-EOF >/dev/null 2>&1
-	delete ucitrack.@pcdn-detector[-1]
-	add ucitrack pcdn-detector
-	set ucitrack.@pcdn-detector[-1].init=pcdn-detector
-	commit ucitrack
-EOF
+# 默认 UCI 配置以模板形式装在 /usr/share 下（非 conffile）：
+# 镜像构建时 postinst 不执行，这里兜底创建；已存在则保留用户设置，
+# 升级时不会出现 "Existing conffile ... is different" 提示。
+CFG="/etc/config/pcdn-detector"
+if [ ! -s "$CFG" ]; then
+	cp -f /usr/share/pcdn-detector/pcdn-detector.config "$CFG"
+	chmod 0644 "$CFG"
+fi
+# 旧版本升级时可能残留的 conffile 副本
+rm -f "$CFG-opkg"
+
+# 不再写 /etc/config/ucitrack：OpenWrt 19.07 起 ucitrack 改为读取
+# /usr/share/ucitrack/*.json，该配置文件已废弃；UCI 变更后的热重载由 init 脚本
+# 里的 procd_add_reload_trigger 负责。
 
 # 安装新版本后清掉旧的默认模板缓存
 rm -f /tmp/pcdn-detect.default.toml

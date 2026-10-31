@@ -37,6 +37,23 @@ rm -f /tmp/pcdn-detect.version
 
 新版已修复：缓存 key 包含 `mtime | ctime | mode`，且只缓存匹配版本号的输出，错误信息不再写入缓存。
 
+**升级时提示 `Existing conffile /etc/config/pcdn-detector is different ...`**
+
+旧版本把 UCI 配置当作 conffile 随包安装，而页面会把更新源、版本、仓库、开机自启等写回该文件，因此每次升级都与包内默认值不同。opkg 会保留现有文件，把新默认值写成 `/etc/config/pcdn-detector-opkg`（apk 系统为 `.apk-new`），安装本身不受影响。
+
+新版只随包提供 `/usr/share/pcdn-detector/pcdn-detector.config` 模板，由 `postinst` / `uci-defaults` 在文件缺失时创建：升级保留用户设置，不再出现该提示，残留的 `-opkg` 副本也会在下次安装或开机时清理。从仍带 conffile 的旧版本升级时，opkg 会先把用户改过的配置备份为 `-opkg`，`postinst` 会把它恢复成主配置，因此升级不会丢设置。
+
+**升级时提示 `uci: Entry not found`**
+
+这一行由 base-files 安装钩子里的 `uci commit` 打印，与本包脚本无关：它会把 `/etc/config` 下每个**文件名**当作包名逐个提交，文件名里带 `.` 时（如 `pcdn-detector-opkg.backup`）会被解析成 `<包>.<段>`，段不存在就报这个错。定位并清理：
+
+```sh
+for c in $(ls /etc/config); do uci -q commit "$c" || echo "FAIL: $c"; done
+rm -f /etc/config/pcdn-detector-opkg.backup
+```
+
+`/etc/config` 下不要留带点号的备份文件（`*.bak`、`*.backup` 等）。
+
 **LuCI 菜单不显示 / 页面空白**
 
 - 21.02+ 未安装 `luci-compat` 时会出现该问题；通过 opkg/apk 正常安装本包会自动拉取，手动安装请先执行 `opkg install luci-compat` 或 `apk add luci-compat`；

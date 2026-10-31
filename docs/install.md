@@ -50,6 +50,7 @@ scp -r luasrc root /tmp/
 ssh root@192.168.1.1 '
   cp -r /tmp/luasrc/* /usr/lib/lua/luci/ &&
   cp -r /tmp/root/* / &&
+  [ -f /etc/config/pcdn-detector ] || cp /usr/share/pcdn-detector/pcdn-detector.config /etc/config/pcdn-detector &&
   chmod +x /etc/init.d/pcdn-detector /etc/uci-defaults/40_luci-pcdn-detector /usr/share/pcdn-detector/update.sh &&
   /etc/init.d/pcdn-detector enable &&
   rm -f /tmp/luci-indexcache && rm -rf /tmp/luci-modulecache

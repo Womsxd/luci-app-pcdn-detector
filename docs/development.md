@@ -22,16 +22,23 @@ luci-app-pcdn-detector/
 │       ├── log.htm                               # 日志查看器
 │       └── update.htm                            # 下载面板
 ├── root/
-│   ├── etc/config/pcdn-detector                  # UCI 配置
 │   ├── etc/init.d/pcdn-detector                  # procd 服务脚本（缺配置时让程序自动生成）
-│   ├── etc/uci-defaults/40_luci-pcdn-detector    # 首次安装初始化
-│   └── usr/share/pcdn-detector/update.sh         # 下载 / 安装 / 回滚脚本
+│   ├── etc/uci-defaults/40_luci-pcdn-detector    # 首次安装：兜底创建默认 UCI 配置、清理缓存
+│   └── usr/share/pcdn-detector/
+│       ├── pcdn-detector.config                  # 默认 UCI 配置模板（安装时复制到 /etc/config）
+│       └── update.sh                             # 下载 / 安装 / 回滚脚本
 └── po/zh-cn/pcdn-detector.po
 ```
 
 > 仓库不内嵌 TOML 配置：首次启动服务或首次打开「配置编辑」时，由
 > `pcdn-detect` 生成默认配置并写入 UCI 指定的 `config_path`（默认
 > `/etc/pcdn-detect/pcdn-detect.toml`），内容来自二进制内置模板，因此会随上游版本更新。
+
+> `/etc/config/pcdn-detector` 不随包安装，也不注册为 conffile：包内只带
+> `/usr/share/pcdn-detector/pcdn-detector.config` 模板，由 `postinst` 与
+> `uci-defaults` 在文件缺失时创建。页面会把更新源、版本、仓库、开机自启等写回该文件，
+> 这样升级既保留用户设置，也不会再触发包管理器的
+> `Existing conffile /etc/config/pcdn-detector is different` 提示。
 
 ## 本地校验
 
