@@ -184,6 +184,15 @@ case "$MODE" in
 		fi
 
 		log "警告：空间不足，将删除旧程序后重新下载（更新失败无法回滚）"
+		if pidof "$(basename "$BIN")" >/dev/null 2>&1; then
+			log "正在停止运行中的服务以释放磁盘空间"
+			[ -x /etc/init.d/pcdn-detector ] && /etc/init.d/pcdn-detector stop >/dev/null 2>&1
+			PIDS="$(pidof "$(basename "$BIN")" 2>/dev/null || true)"
+			if [ -n "$PIDS" ]; then
+				kill $PIDS 2>/dev/null || true
+				sleep 1
+			fi
+		fi
 		if [ -e "$BIN" ]; then
 			rm -f "$BIN" || fail "无法删除旧程序：$BIN"
 		fi
