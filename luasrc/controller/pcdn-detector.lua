@@ -296,6 +296,7 @@ local function validate_text(text)
 	end
 
 	fs.writefile(CHECK_TOML, text)
+	fs.chmod(CHECK_TOML, "rw-------")
 	os.remove(CHECK_OUT)
 
 	local code = sys.call(string.format("%s -T -c %s >%s 2>&1",
@@ -880,7 +881,7 @@ function action_getconfig()
 				end
 
 				if fs.writefile(path, content) then
-					fs.chmod(path, 0644)
+					fs.chmod(path, "rw-r--r--")
 					exists = true
 					created = true
 				else
@@ -983,7 +984,7 @@ function action_savechunk()
 	f:write(content)
 	f:close()
 
-	fs.chmod(SAVE_TMP, 0600)
+	fs.chmod(SAVE_TMP, "rw-------")
 
 	reply_json({ ok = true, index = index, bytes = #content })
 end
