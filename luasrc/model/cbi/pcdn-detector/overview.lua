@@ -1,5 +1,3 @@
-local util = require "luci.model.pcdn_util"
-
 local m, s, o
 
 m = Map("pcdn-detector", translate("PCDN 检测"))
@@ -37,20 +35,18 @@ o.default = 0
 o.rmempty = false
 o.description = translate("开启后，实时统计与端口明细由浏览器直接请求 pcdn-detect 的 HTTP API，不再每次轮询都启动 Lua 进程。需要 [http] listen 监听局域网地址（如 0.0.0.0:8080）、设置 token，并把本页来源加入 [http] cors_allowed_origins；条件不满足时自动回退到 LuCI 代理。")
 
--- 保存 UCI 后让开关立即生效（reload_config 已由 procd trigger 兜底）
+-- 保存 UCI 后让开关与启动参数立即生效：
+-- procd 会在 command（bin_path / config_path / extra_args）变化时自动重启实例，
+-- 未变化（如仅切换 direct_api）时保持原进程运行，不丢失封禁状态。
 m.on_after_commit = function()
 	local cursor = require("luci.model.uci").cursor()
-	if cursor:get("pcdn-detector", "main", "enabled") ~= "1" then
+	local enabled = cursor:get("pcdn-detector", "main", "enabled")
+		or cursor:get("pcdn-detector", "@pcdn-detector[0]", "enabled")
+	if enabled ~= "1" then
 		return
 	end
 
-	local bin = cursor:get("pcdn-detector", "main", "bin_path") or "/usr/bin/pcdn-detect"
-
-	if util.pid_of(bin) then
-		luci.sys.call("/etc/init.d/pcdn-detector reload >/dev/null 2>&1")
-	else
-		luci.sys.call("/etc/init.d/pcdn-detector start >/dev/null 2>&1")
-	end
+	luci.sys.call("/etc/init.d/pcdn-detector start >/dev/null 2>&1")
 end
 
 return m
