@@ -412,9 +412,17 @@ default_config_text = function()
 	end
 
 	if iface and iface ~= "" then
-		-- 只替换生成文本中的 interface 行，不做 TOML 解析/打补丁
-		iface = iface:gsub('"', "")
-		text = text:gsub('interface%s*=%s*""', 'interface = "' .. iface .. '"', 1)
+		-- 只替换生成文本中的 interface 配置行（跳过注释），不做 TOML 解析/打补丁
+		iface = iface:gsub('["\\\r\n]', "")
+		local replaced
+		text, replaced = text:gsub("^([ \t]*)interface%s*=%s*\"\"", function(prefix)
+			return prefix .. 'interface = "' .. iface .. '"'
+		end, 1)
+		if replaced == 0 then
+			text = text:gsub("(\n[ \t]*)interface%s*=%s*\"\"", function(prefix)
+				return prefix .. 'interface = "' .. iface .. '"'
+			end, 1)
+		end
 	end
 
 	return text
