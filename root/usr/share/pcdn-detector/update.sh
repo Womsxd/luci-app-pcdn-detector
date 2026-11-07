@@ -115,7 +115,7 @@ restore_bak() {
 cleanup() {
 	[ -n "$TMP" ] && rm -f "$TMP"
 	[ -n "$STAGE" ] && rm -f "$STAGE"
-	rm -f "$RUNNING"
+	rm -f "$RUNNING" "${RUNNING}.$$"
 	:
 }
 
@@ -129,15 +129,19 @@ if [ "$URL" = "--space" ]; then
 fi
 
 if [ -e "$RUNNING" ]; then
-	echo "已有下载任务正在进行，请稍后再试"
-	exit 1
+	OLD_PID="$(tr -dc '0-9' <"$RUNNING" 2>/dev/null || true)"
+	if [ -n "$OLD_PID" ] && kill -0 "$OLD_PID" 2>/dev/null; then
+		echo "已有下载任务正在进行，请稍后再试"
+		exit 1
+	fi
+	rm -f "$RUNNING"
 fi
 
 : >"$LOG"
 # 之后所有输出（含 curl/wget 的错误）都写入日志，供 LuCI 轮询
 exec >>"$LOG" 2>&1
 
-echo $$ >"$RUNNING"
+printf '%s\n' "$$" >"${RUNNING}.$$" && mv -f "${RUNNING}.$$" "$RUNNING"
 trap 'cleanup' EXIT INT TERM
 
 # 上次更新被中断（如断电）导致只剩备份时，先恢复旧程序
@@ -212,9 +216,9 @@ command -v curl >/dev/null 2>&1 && DOWNLOADER="curl" || {
 log "下载工具：$DOWNLOADER"
 
 if [ "$DOWNLOADER" = "curl" ]; then
-	curl -fL -sS --connect-timeout 20 --retry 2 -o "$TMP" "$URL" || fail "下载失败（curl）"
+	curl -fL -sS --connect-timeout 20 --max-time 300 --retry 2 -o "$TMP" "$URL" || fail "下载失败（curl）"
 else
-	wget -O "$TMP" "$URL" || fail "下载失败（wget）"
+	wget -T 30 -O "$TMP" "$URL" || fail "下载失败（wget）"
 fi
 
 [ -s "$TMP" ] || fail "下载的文件为空"

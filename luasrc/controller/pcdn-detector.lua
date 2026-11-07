@@ -1547,6 +1547,22 @@ local function valid_download_url(url)
 	return url:match("^https?://[%w%._%-/~%?%%=&:;%+%[%]#@!%,]+$") ~= nil
 end
 
+-- 检查更新锁文件中的 PID 是否仍在运行；进程已退出（如被 OOM 杀死）时自动清理残留锁
+local function update_running()
+	if not fs.access(UPDATE_FLAG) then
+		return false
+	end
+
+	local pid = tonumber((fs.readfile(UPDATE_FLAG) or ""):match("%d+"))
+	if pid and (fs.access("/proc/" .. tostring(pid))
+		or sys.call("kill -0 " .. tostring(pid) .. " >/dev/null 2>&1") == 0) then
+		return true
+	end
+
+	os.remove(UPDATE_FLAG)
+	return false
+end
+
 function action_doupdate()
 	local url = util.trim(http.formvalue("url") or "")
 	local bin = bin_path()
@@ -1563,7 +1579,7 @@ function action_doupdate()
 		reply_json({ ok = false, message = "缺少更新脚本：" .. UPDATE_SCRIPT })
 		return
 	end
-	if fs.access(UPDATE_FLAG) then
+	if update_running() then
 		reply_json({ ok = false, message = "已有下载任务正在进行" })
 		return
 	end
@@ -1607,7 +1623,7 @@ function action_updatelog()
 
 	reply_json({
 		ok = true,
-		running = fs.access(UPDATE_FLAG) and true or false,
+		running = update_running(),
 		log = table.concat(lines, "\n", start, #lines),
 	})
 end
