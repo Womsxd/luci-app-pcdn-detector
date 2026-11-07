@@ -328,7 +328,7 @@ local function save_config_file(text)
 	if not fs.writefile(tmp, text) then
 		return nil, "写入临时文件失败：" .. tmp
 	end
-	fs.chmod(tmp, 420) -- 0644
+	fs.chmod(tmp, "rw-r--r--")
 
 	if os.rename(tmp, path) then
 		return path
@@ -338,7 +338,7 @@ local function save_config_file(text)
 		os.remove(tmp)
 		return nil, "写入配置文件失败：" .. path
 	end
-	fs.chmod(path, 420)
+	fs.chmod(path, "rw-r--r--")
 	os.remove(tmp)
 
 	return path
