@@ -377,7 +377,14 @@
 				return;
 			}
 
-			var chunk = content.substr(offset, CHUNK);
+			var end = Math.min(offset + CHUNK, total);
+			if (end < total) {
+				var code = content.charCodeAt(end - 1);
+				if (code >= 0xD800 && code <= 0xDBFF) {
+					end += 1;
+				}
+			}
+			var chunk = content.slice(offset, end);
 			var chunkUrl = U.savechunk + query({ index: index });
 
 			xhrPostText(chunkUrl, chunk, function(x, d) {
