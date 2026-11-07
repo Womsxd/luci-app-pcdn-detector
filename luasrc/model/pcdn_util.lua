@@ -386,7 +386,7 @@ local function parse_listen(listen)
 
 	local host, port = listen:match("^%[(.-)%]:(%d+)$")
 	if not host then
-		host, port = listen:match("^([^:]+):(%d+)$")
+		host, port = listen:match("^([^:]*):(%d+)$")
 	end
 
 	if not host then
