@@ -1069,16 +1069,22 @@ end
 ---------------------------------------------------------------------------
 
 local function log_level_of(line, from_file)
+	-- procd 将 stdout/stderr 固定标记为 daemon.info / daemon.err，
+	-- 不会发出 daemon.warn 或 daemon.debug；优先从消息正文识别等级。
+	local msg = from_file and line
+		or (line:match("[%a]+%.%a+%s+[%w%._%-]+%[?%d*%]?:%s*(.*)$") or line)
+
+	if msg:find("警告", 1, true) or msg:find("WARN", 1, true) then
+		return "warn"
+	end
+	if msg:find("错误", 1, true) or msg:find("ERROR", 1, true) or msg:find("失败", 1, true) then
+		return "error"
+	end
+	if msg:find("DEBUG", 1, true) then
+		return "debug"
+	end
+
 	if from_file then
-		if line:find("警告", 1, true) or line:find("WARN", 1, true) then
-			return "warn"
-		end
-		if line:find("错误", 1, true) or line:find("ERROR", 1, true) or line:find("失败", 1, true) then
-			return "error"
-		end
-		if line:find("DEBUG", 1, true) then
-			return "debug"
-		end
 		return "info"
 	end
 
@@ -1120,21 +1126,26 @@ function action_getlog()
 	local from_file = logfile ~= "" and fs.access(logfile) and true or false
 	local raw
 
-	-- 先在 shell 侧截断：logread 的环形缓冲、/var/log/messages 都可能很大，
-	-- 没必要整份读进 Lua 再筛
+	-- procd 用 basename(command[0]) 作为 stdout 日志的 tag
+	local expected_tag = util.basename(bin_path())
+
+	-- 先在 shell 侧粗筛并截断：避免其它服务刷屏把本服务日志挤出 tail 范围，
+	-- 同时避免把整份 logread / /var/log/messages 读进 Lua。
 	local want = max_lines * 4
 
 	if from_file then
 		raw = util.exec("tail -n " .. tostring(want) .. " " .. util.q(logfile) .. " 2>/dev/null")
 	else
-		raw = util.exec("logread 2>/dev/null | tail -n " .. tostring(want))
+		local grep_cmd = "grep -F -e 'pcdn-detect'"
+		if expected_tag ~= "" and expected_tag ~= "pcdn-detect" then
+			grep_cmd = grep_cmd .. " -e " .. util.q(expected_tag)
+		end
+
+		raw = util.exec("logread 2>/dev/null | " .. grep_cmd .. " | tail -n " .. tostring(want))
 		if raw == "" then
-			raw = util.exec("tail -n " .. tostring(want) .. " /var/log/messages 2>/dev/null")
+			raw = util.exec(grep_cmd .. " /var/log/messages 2>/dev/null | tail -n " .. tostring(want))
 		end
 	end
-
-	-- procd 用 basename(command[0]) 作为 stdout 日志的 tag
-	local expected_tag = util.basename(bin_path())
 
 	local function keep(line)
 		if not from_file then
