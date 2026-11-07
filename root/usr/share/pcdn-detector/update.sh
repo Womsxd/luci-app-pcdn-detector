@@ -266,14 +266,20 @@ fi
 STAGE=""
 chmod 0755 "$BIN"
 
-VERSION="$("$BIN" -v 2>&1 | head -n 1)"
+VERSION_OUTPUT="$("$BIN" -v 2>&1)"
+VERSION_STATUS=$?
+VERSION="$(printf '%s\n' "$VERSION_OUTPUT" | head -n 1)"
 case "$VERSION" in
 	"" | *"not found"* | *"Permission denied"* | *"Exec format error"* | *"No such file"*)
-		log "自检失败：$VERSION"
-		restore_bak
-		fail "新程序无法运行（架构不匹配或文件损坏）"
+		VERSION_STATUS=1
 		;;
 esac
+
+if [ "$VERSION_STATUS" -ne 0 ]; then
+	log "自检失败（退出码 ${VERSION_STATUS}）：$VERSION"
+	restore_bak
+	fail "新程序无法运行（架构不匹配或文件损坏）"
+fi
 
 log "安装成功：$BIN"
 log "版本：$VERSION"
