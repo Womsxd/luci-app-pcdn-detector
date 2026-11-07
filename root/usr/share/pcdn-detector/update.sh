@@ -35,6 +35,7 @@ MIN_AFTER_PURGE_KB=8192
 TMP=""
 STAGE=""
 HAS_BAK=0
+WAS_RUNNING=0
 DIR_KB=0
 TMP_KB=0
 MODE=""
@@ -102,6 +103,24 @@ resolve_allow() {
 	fi
 
 	echo 0
+}
+
+is_service_enabled() {
+	if command -v uci >/dev/null 2>&1; then
+		local val
+		val="$(uci -q get pcdn-detector.main.enabled 2>/dev/null)"
+		[ -n "$val" ] || val="$(uci -q get pcdn-detector.@pcdn-detector[0].enabled 2>/dev/null)"
+		case "$val" in
+			1 | true | on | yes)
+				return 0
+				;;
+			0 | false | off | no)
+				return 1
+				;;
+		esac
+	fi
+
+	[ -x /etc/init.d/pcdn-detector ] && /etc/init.d/pcdn-detector enabled >/dev/null 2>&1
 }
 
 restore_bak() {
@@ -189,6 +208,7 @@ case "$MODE" in
 
 		log "警告：空间不足，将删除旧程序后重新下载（更新失败无法回滚）"
 		if pidof "$(basename "$BIN")" >/dev/null 2>&1; then
+			WAS_RUNNING=1
 			log "正在停止运行中的服务以释放磁盘空间"
 			[ -x /etc/init.d/pcdn-detector ] && /etc/init.d/pcdn-detector stop >/dev/null 2>&1
 			PIDS="$(pidof "$(basename "$BIN")" 2>/dev/null || true)"
@@ -307,11 +327,11 @@ if [ -n "$TMP" ]; then
 	TMP=""
 fi
 
-if /etc/init.d/pcdn-detector enabled >/dev/null 2>&1; then
+if is_service_enabled; then
 	log "正在重启服务"
 	/etc/init.d/pcdn-detector restart >/dev/null 2>&1
 	log "服务已重启"
-elif pidof "$(basename "$BIN")" >/dev/null 2>&1; then
+elif [ "$WAS_RUNNING" = "1" ] || pidof "$(basename "$BIN")" >/dev/null 2>&1; then
 	log "服务正在运行但未设置开机自启，请手动重启后生效"
 fi
 
