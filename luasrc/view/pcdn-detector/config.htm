@@ -105,6 +105,78 @@
 		color: #ef6c00;
 		color: color-mix(in srgb, #ef6c00 65%, currentColor);
 	}
+	.pcdn-presets {
+		margin: 0 0 10px 0;
+		padding: 8px 10px;
+		background: rgba(128, 128, 128, 0.06);
+		border: 1px solid rgba(128, 128, 128, 0.28);
+		border-radius: 4px;
+	}
+	.pcdn-preset-row {
+		display: flex;
+		flex-wrap: wrap;
+		align-items: center;
+		gap: 6px;
+		margin: 4px 0;
+		font-size: 12px;
+	}
+	.pcdn-preset-label {
+		flex: 0 0 88px;
+		font-weight: bold;
+		opacity: 0.8;
+		white-space: nowrap;
+	}
+	.pcdn-preset-group {
+		display: inline-flex;
+		flex-wrap: wrap;
+		align-items: center;
+		gap: 4px;
+		margin-right: 10px;
+	}
+	.pcdn-preset-sub {
+		opacity: 0.7;
+		margin-right: 2px;
+		white-space: nowrap;
+	}
+	.pcdn-chip {
+		display: inline-block;
+		padding: 2px 8px;
+		font-size: 12px;
+		line-height: 18px;
+		border: 1px solid rgba(128, 128, 128, 0.38);
+		border-radius: 3px;
+		background: rgba(128, 128, 128, 0.08);
+		color: inherit;
+		cursor: pointer;
+		white-space: nowrap;
+		transition: background 0.12s, border-color 0.12s;
+	}
+	.pcdn-chip:hover {
+		background: rgba(128, 128, 128, 0.18);
+		border-color: rgba(128, 128, 128, 0.55);
+	}
+	.pcdn-chip.is-active {
+		background: rgba(21, 101, 192, 0.18);
+		border-color: rgba(21, 101, 192, 0.65);
+		color: #1565c0;
+		color: color-mix(in srgb, #1565c0 65%, currentColor);
+		font-weight: bold;
+	}
+	.pcdn-preset-hint {
+		display: none;
+		margin-top: 6px;
+		padding-top: 6px;
+		border-top: 1px dashed rgba(128, 128, 128, 0.28);
+		font-size: 12px;
+		line-height: 1.5;
+		color: inherit;
+		opacity: 0.9;
+		white-space: pre-wrap;
+		word-break: break-all;
+	}
+	.pcdn-preset-hint.is-visible {
+		display: block;
+	}
 </style>
 
 <div class="pcdn-cfg-head">
@@ -118,6 +190,70 @@
 		完整 TOML 文本编辑，等同于直接编辑一个 txt 文件。保存时会把全文发回后端，
 		先执行 <code>pcdn-detect -T</code> 校验，失败不会写入；保存成功后运行中的服务通过 SIGHUP 热重载。
 	</p>
+
+	<div class="pcdn-presets" id="pcdn-presets">
+		<div class="pcdn-preset-row">
+			<span class="pcdn-preset-label">场景预设</span>
+			<div class="pcdn-preset-group">
+				<button type="button" class="pcdn-chip" data-scene="standard" title="UDP 抓包、阈值 20 / 60s、日志 warn、常规内存上限（默认推荐）">标准模式（推荐）</button>
+				<button type="button" class="pcdn-chip" data-scene="strict" title="同时检测 UDP+TCP (all)、阈值 15 / 60s、开启防火墙自动封禁与全 UDP 端口封禁及 UPnP 拦截">严格封禁</button>
+				<button type="button" class="pcdn-chip" data-scene="relaxed" title="仅检测 UDP、阈值放宽到 35 / 60s、关闭全 UDP 端口封禁（适合 PT / 游戏较多环境）">宽松防误判</button>
+				<button type="button" class="pcdn-chip" data-scene="monitor" title="关闭防火墙与 UPnP 拦截、日志设为 info、开启本机 HTTP API，仅记录告警不封禁">仅监控不封禁</button>
+				<button type="button" class="pcdn-chip" data-scene="lowmem" title="开启 low_memory、单设备端口上限 256、关闭 HTTP API、日志 warn（适合小内存硬路由）">低内存路由</button>
+			</div>
+		</div>
+
+		<div class="pcdn-preset-row">
+			<span class="pcdn-preset-label">HTTP API</span>
+			<div class="pcdn-preset-group">
+				<button type="button" class="pcdn-chip" data-http-preset="local" title="启用 [http] 并监听 127.0.0.1:8080（供概览页通过 LuCI 代理读取实时统计）">启用本机 API（代理）</button>
+				<button type="button" class="pcdn-chip" data-http-preset="direct" title="监听 0.0.0.0:8080、自动生成随机 token，并把当前浏览器 Origin 写入 cors_allowed_origins">启用局域网直连 API</button>
+				<button type="button" class="pcdn-chip" data-http-preset="off" title="设置 [http] enabled = false">关闭 HTTP API</button>
+			</div>
+		</div>
+
+		<div class="pcdn-preset-row">
+			<span class="pcdn-preset-label">常用项快切</span>
+			<div class="pcdn-preset-group">
+				<span class="pcdn-preset-sub">协议：</span>
+				<button type="button" class="pcdn-chip" data-kv="capture.protocol" data-val='"udp"'>UDP</button>
+				<button type="button" class="pcdn-chip" data-kv="capture.protocol" data-val='"tcp"'>TCP</button>
+				<button type="button" class="pcdn-chip" data-kv="capture.protocol" data-val='"all"'>UDP+TCP (all)</button>
+			</div>
+			<div class="pcdn-preset-group">
+				<span class="pcdn-preset-sub">阈值：</span>
+				<button type="button" class="pcdn-chip" data-kv="detect.threshold" data-val="15">15</button>
+				<button type="button" class="pcdn-chip" data-kv="detect.threshold" data-val="20">20</button>
+				<button type="button" class="pcdn-chip" data-kv="detect.threshold" data-val="30">30</button>
+				<button type="button" class="pcdn-chip" data-kv="detect.threshold" data-val="40">40</button>
+			</div>
+			<div class="pcdn-preset-group">
+				<span class="pcdn-preset-sub">日志：</span>
+				<button type="button" class="pcdn-chip" data-kv="log.level" data-val='"warn"'>warn</button>
+				<button type="button" class="pcdn-chip" data-kv="log.level" data-val='"info"'>info</button>
+				<button type="button" class="pcdn-chip" data-kv="log.level" data-val='"debug"'>debug</button>
+				<button type="button" class="pcdn-chip" data-kv="log.level" data-val='"error"'>error</button>
+			</div>
+			<div class="pcdn-preset-group">
+				<span class="pcdn-preset-sub">防火墙：</span>
+				<button type="button" class="pcdn-chip" data-fw-preset="nftables" title="启用 [firewall] 并使用 nftables 后端（OpenWrt 22.03+ / fw4 推荐）">nftables (fw4)</button>
+				<button type="button" class="pcdn-chip" data-fw-preset="iptables" title="启用 [firewall] 并使用 iptables 后端（OpenWrt 21.02 及更早 / fw3）">iptables (fw3)</button>
+				<button type="button" class="pcdn-chip" data-fw-preset="off" title="关闭防火墙自动封禁（[firewall] enabled = false）">关闭</button>
+			</div>
+			<div class="pcdn-preset-group">
+				<span class="pcdn-preset-sub">全封禁：</span>
+				<button type="button" class="pcdn-chip" data-fullban-preset="on" title="开启全 UDP 端口封禁（[full_ban] mode = &quot;on&quot;，单设备被封端口数达阈值后封禁全部 UDP 端口）">开启</button>
+				<button type="button" class="pcdn-chip" data-fullban-preset="device" title="仅对名单中标记 full_ban = true 的设备启用全 UDP 端口封禁（[full_ban] mode = &quot;device&quot;）">按设备</button>
+				<button type="button" class="pcdn-chip" data-fullban-preset="off" title="关闭全 UDP 端口封禁（[full_ban] mode = &quot;off&quot;）">关闭</button>
+			</div>
+			<div class="pcdn-preset-group">
+				<span class="pcdn-preset-sub">低内存：</span>
+				<button type="button" class="pcdn-chip" data-kv="memory.low_memory" data-val="true">开启</button>
+				<button type="button" class="pcdn-chip" data-kv="memory.low_memory" data-val="false">关闭</button>
+			</div>
+		</div>
+		<div class="pcdn-preset-hint" id="pcdn-preset-hint"></div>
+	</div>
 
 	<div class="pcdn-editor-wrap">
 		<div class="pcdn-gutter" id="pcdn-cfg-gutter" aria-hidden="true">
@@ -284,10 +420,445 @@
 			var el = document.getElementById(ids[i]);
 			if (el) el.disabled = !!busy;
 		}
+		var chips = document.querySelectorAll('#pcdn-presets button.pcdn-chip');
+		for (var j = 0; j < chips.length; j++) {
+			chips[j].disabled = !!busy;
+		}
+	}
+
+	// 拆分代码与行尾注释（忽略单/双引号字符串内部的 #），就地改值时保留原有注释与空白
+	function splitLineComment(line) {
+		var inStr = false;
+		var quote = '';
+
+		for (var i = 0; i < line.length; i++) {
+			var c = line.charAt(i);
+			if (inStr) {
+				if (quote === '"' && c === '\\') {
+					i++;
+				} else if (c === quote) {
+					inStr = false;
+				}
+			} else if (c === '"' || c === "'") {
+				inStr = true;
+				quote = c;
+			} else if (c === '#') {
+				var pre = line.slice(0, i);
+				var m = pre.match(/([ \t]*)$/);
+				var ws = m ? m[1] : '';
+				return {
+					code: pre.slice(0, pre.length - ws.length),
+					comment: ws + line.slice(i)
+				};
+			}
+		}
+
+		return { code: line, comment: '' };
+	}
+
+	function isValidTomlLiteral(val) {
+		val = String(val || '').replace(/^\s+|\s+$/g, '');
+		if (val === 'true' || val === 'false') return true;
+		if (/^-?\d+$/.test(val)) return true;
+		if (/^"(?:\\.|[^"\\])*"$/.test(val)) return true;
+		if (/^'[^']*'$/.test(val)) return true;
+		if (/^\[.*\]$/.test(val)) return true;
+		return false;
+	}
+
+	function parseSectionHeader(line, includeCommented) {
+		var m = line.match(/^([ \t]*)(#[ \t]*)?(\[\[?[ \t]*[A-Za-z0-9_.-]+[ \t]*\]\]?)[ \t]*(?:#.*)?$/);
+		if (!m) return null;
+
+		var isCommented = !!m[2];
+		if (isCommented && !includeCommented) return null;
+
+		var bracket = m[3];
+		var arrMatch = bracket.match(/^\[\[[ \t]*([A-Za-z0-9_.-]+)[ \t]*\]\]$/);
+		if (arrMatch) {
+			return { name: arrMatch[1], isArray: true, commented: isCommented };
+		}
+
+		var secMatch = bracket.match(/^\[[ \t]*([A-Za-z0-9_.-]+)[ \t]*\]$/);
+		if (secMatch) {
+			return { name: secMatch[1], isArray: false, commented: isCommented };
+		}
+
+		return null;
+	}
+
+	function readSectionMap(text) {
+		var lines = String(text || '').replace(/\r\n/g, '\n').split('\n');
+		var map = {};
+		var cur = null;
+
+		for (var i = 0; i < lines.length; i++) {
+			var hdr = parseSectionHeader(lines[i], true);
+			if (hdr) {
+				cur = (hdr.commented || hdr.isArray) ? null : hdr.name;
+				if (cur && !map[cur]) map[cur] = {};
+				continue;
+			}
+			if (!cur) continue;
+
+			var parts = splitLineComment(lines[i]);
+			var m = parts.code.match(/^[ \t]*([A-Za-z0-9_-]+)[ \t]*=[ \t]*(.*?)[ \t]*$/);
+			if (m && m[2] !== '') {
+				map[cur][m[1]] = m[2];
+			}
+		}
+
+		return map;
+	}
+
+	// 按 [section] 就地修改 TOML 键值：保留所有注释、缩进与未知配置项，支持按需取消模板注释段与注释键
+	function applyTomlPatches(text, patches) {
+		var lines = String(text || '').replace(/\r\n/g, '\n').split('\n');
+		var applied = [];
+		var changed = [];
+		var firstChangedLine = 0;
+		var firstMatchedLine = 0;
+
+		function findSectionRange(secName) {
+			var start = -1;
+			var commented = false;
+			var end = lines.length;
+
+			// 优先匹配已取消注释的 [section]，未找到时再匹配模板中默认注释的 # [section]
+			for (var pass = 0; pass < 2 && start < 0; pass++) {
+				var wantCommented = pass === 1;
+				for (var i = 0; i < lines.length; i++) {
+					var hdr = parseSectionHeader(lines[i], true);
+					if (!hdr || hdr.isArray) continue;
+					if (hdr.name === secName && hdr.commented === wantCommented) {
+						start = i;
+						commented = hdr.commented;
+						break;
+					}
+				}
+			}
+
+			if (start < 0) return null;
+
+			for (var j = start + 1; j < lines.length; j++) {
+				if (parseSectionHeader(lines[j], true)) {
+					end = j;
+					break;
+				}
+			}
+
+			return { start: start, end: end, commented: commented };
+		}
+
+		for (var p = 0; p < patches.length; p++) {
+			var item = patches[p];
+			var range = findSectionRange(item.section);
+			if (!range) continue;
+
+			var found = -1;
+			var lastKeyLine = -1;
+
+			// 1. 先在非注释的 [section] 内查找已生效的同名键
+			if (!range.commented) {
+				for (var i = range.start + 1; i < range.end; i++) {
+					var parts = splitLineComment(lines[i]);
+					var m = parts.code.match(/^([ \t]*)([A-Za-z0-9_-]+)([ \t]*=[ \t]*)(.*?)[ \t]*$/);
+					if (m && m[4] !== '') {
+						lastKeyLine = i;
+						if (m[2] === item.key) {
+							found = i;
+							var oldVal = m[4];
+							var nextLine = m[1] + m[2] + m[3] + item.value + parts.comment;
+							if (!firstMatchedLine) firstMatchedLine = i + 1;
+							if (lines[i] !== nextLine) {
+								lines[i] = nextLine;
+								changed.push('[' + item.section + '] ' + item.key + ': ' + oldVal + ' → ' + item.value);
+								if (!firstChangedLine) firstChangedLine = i + 1;
+							}
+							applied.push('[' + item.section + '] ' + item.key + ' = ' + item.value);
+							break;
+						}
+					}
+				}
+			}
+
+			if (found >= 0) continue;
+
+			// onlyIfActive：当该键尚未取消注释（已走上游内置默认值）时不主动取消注释，避免把默认注释块全部展开
+			if (item.onlyIfActive) {
+				applied.push('[' + item.section + '] ' + item.key + ' = ' + item.value);
+				if (!firstMatchedLine) firstMatchedLine = range.start + 1;
+				continue;
+			}
+
+			// 2. 在模板注释行（# key = value）中匹配并就地取消注释
+			for (var c = range.start + 1; c < range.end; c++) {
+				var cm = lines[c].match(/^([ \t]*)#[ \t]*(.*)$/);
+				if (!cm) continue;
+
+				var cParts = splitLineComment(cm[2]);
+				var km = cParts.code.match(/^([A-Za-z0-9_-]+)([ \t]*=[ \t]*)(.*?)[ \t]*$/);
+				if (km && isValidTomlLiteral(km[3])) {
+					lastKeyLine = Math.max(lastKeyLine, c);
+					if (km[1] === item.key) {
+						found = c;
+						if (range.commented) {
+							lines[range.start] = lines[range.start].replace(/^([ \t]*)#[ \t]*/, '$1');
+							range.commented = false;
+						}
+						var nextCLine = cm[1] + km[1] + km[2] + item.value + cParts.comment;
+						lines[c] = nextCLine;
+						changed.push('[' + item.section + '] ' + item.key + ': (取消注释) → ' + item.value);
+						if (!firstChangedLine) firstChangedLine = c + 1;
+						if (!firstMatchedLine) firstMatchedLine = c + 1;
+						applied.push('[' + item.section + '] ' + item.key + ' = ' + item.value);
+						break;
+					}
+				}
+			}
+
+			if (found >= 0) continue;
+
+			// optional 键仅在模板中已存在该键时修改，避免向不认识该键的版本插入未知项
+			if (item.optional) continue;
+
+			// 3. 兜底：若用户手动删除了该键所在行，则追加到本段最后一个键值行之后
+			if (range.commented) {
+				lines[range.start] = lines[range.start].replace(/^([ \t]*)#[ \t]*/, '$1');
+				range.commented = false;
+			}
+			var insertAt = lastKeyLine >= 0 ? (lastKeyLine + 1) : (range.start + 1);
+			lines.splice(insertAt, 0, item.key + ' = ' + item.value);
+			applied.push('[' + item.section + '] ' + item.key + ' = ' + item.value);
+			changed.push('[' + item.section + '] ' + item.key + ': (新增) → ' + item.value);
+			if (!firstChangedLine) firstChangedLine = insertAt + 1;
+			if (!firstMatchedLine) firstMatchedLine = insertAt + 1;
+		}
+
+		return {
+			text: lines.join('\n'),
+			applied: applied,
+			changed: changed,
+			firstLine: firstChangedLine || firstMatchedLine
+		};
+	}
+
+	function randomToken(len) {
+		var chars = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789';
+		var out = '';
+		var arr = null;
+
+		if (window.crypto && window.crypto.getRandomValues && typeof Uint32Array !== 'undefined') {
+			arr = new Uint32Array(len);
+			window.crypto.getRandomValues(arr);
+		}
+
+		for (var i = 0; i < len; i++) {
+			var idx = arr ? (arr[i] % chars.length) : Math.floor(Math.random() * chars.length);
+			out += chars.charAt(idx);
+		}
+		return out;
+	}
+
+	function unquote(raw) {
+		raw = String(raw || '').replace(/^\s+|\s+$/g, '');
+		if ((raw.charAt(0) === '"' && raw.charAt(raw.length - 1) === '"')
+			|| (raw.charAt(0) === "'" && raw.charAt(raw.length - 1) === "'")) {
+			return raw.slice(1, -1);
+		}
+		return raw;
+	}
+
+	function isLoopbackListen(listen) {
+		var s = unquote(listen) || '127.0.0.1:8080';
+		return /^127\.0\.0\.1:|^localhost:|^\[::1\]:/i.test(s);
+	}
+
+	function resolveFirewallBackend(map) {
+		var cur = unquote((map.firewall && map.firewall.backend) || '').toLowerCase();
+		if (cur === 'iptables' || cur === 'nftables') return cur;
+		if (cur === 'hook') {
+			var hookCmd = unquote((map['firewall.hook'] && map['firewall.hook'].cmd) || '');
+			if (hookCmd) return 'hook';
+		}
+		return 'nftables';
+	}
+
+	function showPresetHint(text) {
+		var el = document.getElementById('pcdn-preset-hint');
+		if (!el) return;
+		el.textContent = text || '';
+		el.className = 'pcdn-preset-hint' + (text ? ' is-visible' : '');
+	}
+
+	// 根据编辑器当前文本同步预设按钮高亮状态（未显式配置的项按上游内置默认值判定）
+	function syncPresetState() {
+		var map = readSectionMap(editor.value);
+		var get = function(sec, k) { return (map[sec] && map[sec][k]) || ''; };
+		var DEFAULTS = {
+			'capture.protocol': '"udp"',
+			'detect.threshold': '20',
+			'log.level': '"warn"',
+			'memory.low_memory': 'false'
+		};
+
+		var kvBtns = document.querySelectorAll('#pcdn-presets button[data-kv]');
+		for (var i = 0; i < kvBtns.length; i++) {
+			var btn = kvBtns[i];
+			var kvKey = btn.getAttribute('data-kv') || '';
+			var pair = kvKey.split('.');
+			var want = btn.getAttribute('data-val') || '';
+			var cur = get(pair[0], pair[1]) || DEFAULTS[kvKey] || '';
+			var active = cur !== '' && (cur === want || unquote(cur).toLowerCase() === unquote(want).toLowerCase());
+			btn.className = 'pcdn-chip' + (active ? ' is-active' : '');
+		}
+
+		var httpEnabled = get('http', 'enabled') === 'true';
+		var httpListen = unquote(get('http', 'listen')) || '127.0.0.1:8080';
+		var httpBtns = document.querySelectorAll('#pcdn-presets button[data-http-preset]');
+		for (var j = 0; j < httpBtns.length; j++) {
+			var hbtn = httpBtns[j];
+			var mode = hbtn.getAttribute('data-http-preset');
+			var hActive = false;
+			if (mode === 'off') {
+				hActive = !httpEnabled;
+			} else if (mode === 'local') {
+				hActive = httpEnabled && isLoopbackListen(httpListen);
+			} else if (mode === 'direct') {
+				hActive = httpEnabled && !isLoopbackListen(httpListen);
+			}
+			hbtn.className = 'pcdn-chip' + (hActive ? ' is-active' : '');
+		}
+
+		var proto = (unquote(get('capture', 'protocol')) || 'udp').toLowerCase();
+		var thresh = get('detect', 'threshold') || '20';
+		var win = unquote(get('detect', 'window')) || '60s';
+		var logLv = (unquote(get('log', 'level')) || 'warn').toLowerCase();
+		var fwEn = get('firewall', 'enabled') || 'false';
+		var fwBackend = unquote(get('firewall', 'backend')).toLowerCase();
+		var fullBanMode = (unquote(get('full_ban', 'mode')) || 'off').toLowerCase();
+		var upnpMode = (unquote(get('upnp', 'mode')) || 'off').toLowerCase();
+		var lowMem = get('memory', 'low_memory') || 'false';
+		var maxPorts = get('memory', 'max_ports') || '512';
+
+		var fwBtns = document.querySelectorAll('#pcdn-presets button[data-fw-preset]');
+		for (var f = 0; f < fwBtns.length; f++) {
+			var fbtn = fwBtns[f];
+			var fwMode = fbtn.getAttribute('data-fw-preset');
+			var fwActive = false;
+			if (fwMode === 'off') {
+				fwActive = fwEn !== 'true';
+			} else {
+				fwActive = fwEn === 'true' && fwBackend === fwMode;
+			}
+			fbtn.className = 'pcdn-chip' + (fwActive ? ' is-active' : '');
+		}
+
+		var fbBtns = document.querySelectorAll('#pcdn-presets button[data-fullban-preset]');
+		for (var b = 0; b < fbBtns.length; b++) {
+			var bbtn = fbBtns[b];
+			var fbMode = bbtn.getAttribute('data-fullban-preset');
+			bbtn.className = 'pcdn-chip' + (fullBanMode === fbMode ? ' is-active' : '');
+		}
+
+		var activeScene = '';
+		if (proto === 'all' && thresh === '15' && win === '60s'
+			&& fwEn === 'true' && fullBanMode === 'on' && upnpMode === 'on'
+			&& lowMem === 'false' && maxPorts === '512') {
+			activeScene = 'strict';
+		} else if (proto === 'udp' && thresh === '35' && win === '60s' && logLv === 'warn'
+			&& fwEn === 'false' && fullBanMode === 'off' && upnpMode === 'off'
+			&& lowMem === 'false' && maxPorts === '512') {
+			activeScene = 'relaxed';
+		} else if (proto === 'udp' && thresh === '20' && win === '60s' && logLv === 'info'
+			&& fwEn === 'false' && fullBanMode === 'off' && upnpMode === 'off'
+			&& lowMem === 'false' && maxPorts === '512' && httpEnabled) {
+			activeScene = 'monitor';
+		} else if (proto === 'udp' && thresh === '20' && win === '60s' && logLv === 'warn'
+			&& fwEn === 'false' && fullBanMode === 'off' && upnpMode === 'off'
+			&& lowMem === 'true' && maxPorts === '256' && !httpEnabled) {
+			activeScene = 'lowmem';
+		} else if (proto === 'udp' && thresh === '20' && win === '60s' && logLv === 'warn'
+			&& fwEn === 'false' && fullBanMode === 'off' && upnpMode === 'off'
+			&& lowMem === 'false' && maxPorts === '512') {
+			activeScene = 'standard';
+		}
+
+		var sceneBtns = document.querySelectorAll('#pcdn-presets button[data-scene]');
+		for (var k = 0; k < sceneBtns.length; k++) {
+			var sbtn = sceneBtns[k];
+			var sc = sbtn.getAttribute('data-scene');
+			sbtn.className = 'pcdn-chip' + (sc === activeScene ? ' is-active' : '');
+		}
+	}
+
+	function jumpToLine(lineNo) {
+		if (!lineNo || lineNo < 1) return;
+		var text = editor.value;
+		var cur = 1;
+		var pos = 0;
+
+		for (var i = 0; i < text.length && cur < lineNo; i++) {
+			if (text.charCodeAt(i) === 10) {
+				cur++;
+				pos = i + 1;
+			}
+		}
+
+		try {
+			editor.focus({ preventScroll: true });
+		} catch (e) {
+			editor.focus();
+		}
+		editor.selectionStart = editor.selectionEnd = pos;
+		var targetScroll = Math.max(0, (lineNo - 5) * 18);
+		editor.scrollTop = targetScroll;
+		renderGutter();
+	}
+
+	function applyPreset(title, patches, extraHint) {
+		if (!editor.value || !editor.value.replace(/\s+/g, '')) {
+			showPresetHint('当前编辑器内容为空，请先载入或恢复默认配置后再应用预设。');
+			showResult('当前编辑器内容为空，请先载入或恢复默认配置后再应用预设。', false);
+			return;
+		}
+
+		var res = applyTomlPatches(editor.value, patches);
+		if (!res.applied.length) {
+			showPresetHint('未找到可修改的目标配置段，请确认配置文件包含对应 [section]。');
+			showResult('未找到可修改的目标配置段，请确认配置文件包含对应 [section]。', false);
+			return;
+		}
+
+		var hasChanged = editor.value !== res.text;
+		if (hasChanged) {
+			editor.value = res.text;
+			dirty = true;
+			setState();
+		}
+
+		renderGutter();
+		syncPresetState();
+		if (res.firstLine) {
+			jumpToLine(res.firstLine);
+		}
+
+		var summary = '';
+		if (hasChanged && res.changed.length) {
+			summary = '已应用预设「' + title + '」（共修改 ' + res.changed.length + ' 项，请点击下方「保存并应用」或按 Ctrl/Cmd+S 生效）：\n'
+				+ res.changed.join('\n');
+		} else {
+			summary = '当前配置已符合预设「' + title + '」（各项键值均已一致，无需修改）。';
+		}
+		if (extraHint) summary += '\n' + extraHint;
+
+		showPresetHint(summary);
+		showResult(summary, true);
 	}
 
 	function load() {
 		showResult('', true);
+		showPresetHint('');
 		XHR.get(U.get, null, function(x, d) {
 			if (!d || !d.ok) {
 				showResult('读取配置文件失败', false);
@@ -296,6 +867,7 @@
 
 			editor.value = d.content || '';
 			renderGutter();
+			syncPresetState();
 			document.getElementById('pcdn-cfg-path').textContent = d.path || '';
 			dirty = false;
 			setState();
@@ -439,6 +1011,7 @@
 			setState();
 		}
 		renderGutter();
+		syncPresetState();
 	};
 
 	editor.onscroll = syncGutterScroll;
@@ -500,11 +1073,229 @@
 		});
 	};
 
+	function ensureHttpToken() {
+		var map = readSectionMap(editor.value);
+		var raw = (map.http && map.http.token) || '';
+		var cur = unquote(raw);
+		if (cur) return { token: cur, generated: false };
+		return { token: randomToken(24), generated: true };
+	}
+
+	function bindPresets() {
+		function buildScenePreset(name) {
+			var map = readSectionMap(editor.value);
+
+			if (name === 'standard') {
+				return {
+					title: '标准模式',
+					patches: [
+						{ section: 'capture', key: 'protocol', value: '"udp"' },
+						{ section: 'detect', key: 'threshold', value: '20' },
+						{ section: 'detect', key: 'window', value: '"60s"' },
+						{ section: 'log', key: 'level', value: '"warn"' },
+						{ section: 'memory', key: 'low_memory', value: 'false' },
+						{ section: 'memory', key: 'max_ports', value: '512', onlyIfActive: true },
+						{ section: 'firewall', key: 'enabled', value: 'false', onlyIfActive: true },
+						{ section: 'full_ban', key: 'mode', value: '"off"', onlyIfActive: true },
+						{ section: 'upnp', key: 'mode', value: '"off"', onlyIfActive: true }
+					]
+				};
+			}
+
+			if (name === 'strict') {
+				var fwBackend = resolveFirewallBackend(map);
+				return {
+					title: '严格封禁',
+					patches: [
+						{ section: 'capture', key: 'protocol', value: '"all"' },
+						{ section: 'detect', key: 'threshold', value: '15' },
+						{ section: 'detect', key: 'window', value: '"60s"' },
+						{ section: 'log', key: 'level', value: '"warn"' },
+						{ section: 'memory', key: 'low_memory', value: 'false' },
+						{ section: 'memory', key: 'max_ports', value: '512', onlyIfActive: true },
+						{ section: 'firewall', key: 'enabled', value: 'true' },
+						{ section: 'firewall', key: 'backend', value: '"' + fwBackend + '"' },
+						{ section: 'full_ban', key: 'mode', value: '"on"' },
+						{ section: 'upnp', key: 'mode', value: '"on"' }
+					],
+					hint: '已启用 [firewall]（后端：' + fwBackend + '，旧版 fw3 固件可在「常用项快切 → 防火墙」切为 iptables）、[full_ban] 与 [upnp]。'
+				};
+			}
+
+			if (name === 'relaxed') {
+				return {
+					title: '宽松防误判',
+					patches: [
+						{ section: 'capture', key: 'protocol', value: '"udp"' },
+						{ section: 'detect', key: 'threshold', value: '35' },
+						{ section: 'detect', key: 'window', value: '"60s"' },
+						{ section: 'log', key: 'level', value: '"warn"' },
+						{ section: 'memory', key: 'low_memory', value: 'false' },
+						{ section: 'memory', key: 'max_ports', value: '512', onlyIfActive: true },
+						{ section: 'firewall', key: 'enabled', value: 'false', onlyIfActive: true },
+						{ section: 'full_ban', key: 'mode', value: '"off"', onlyIfActive: true },
+						{ section: 'upnp', key: 'mode', value: '"off"', onlyIfActive: true }
+					]
+				};
+			}
+
+			if (name === 'monitor') {
+				var patches = [
+					{ section: 'capture', key: 'protocol', value: '"udp"' },
+					{ section: 'detect', key: 'threshold', value: '20' },
+					{ section: 'detect', key: 'window', value: '"60s"' },
+					{ section: 'log', key: 'level', value: '"info"' },
+					{ section: 'memory', key: 'low_memory', value: 'false' },
+					{ section: 'memory', key: 'max_ports', value: '512', onlyIfActive: true },
+					{ section: 'firewall', key: 'enabled', value: 'false', onlyIfActive: true },
+					{ section: 'full_ban', key: 'mode', value: '"off"', onlyIfActive: true },
+					{ section: 'upnp', key: 'mode', value: '"off"', onlyIfActive: true },
+					{ section: 'http', key: 'enabled', value: 'true' }
+				];
+				var hint = '';
+				var curListen = (map.http && map.http.listen) || '';
+				if (!isLoopbackListen(curListen)) {
+					var tk = ensureHttpToken();
+					patches.push({ section: 'http', key: 'token', value: '"' + tk.token + '"' });
+					if (tk.generated) {
+						hint = '[http] listen 为非回环地址，已自动补全 24 位随机密钥：' + tk.token;
+					}
+				}
+				return { title: '仅监控不封禁', patches: patches, hint: hint };
+			}
+
+			if (name === 'lowmem') {
+				return {
+					title: '低内存路由',
+					patches: [
+						{ section: 'capture', key: 'protocol', value: '"udp"' },
+						{ section: 'detect', key: 'threshold', value: '20' },
+						{ section: 'detect', key: 'window', value: '"60s"' },
+						{ section: 'log', key: 'level', value: '"warn"' },
+						{ section: 'memory', key: 'low_memory', value: 'true' },
+						{ section: 'memory', key: 'max_ports', value: '256' },
+						{ section: 'firewall', key: 'enabled', value: 'false', onlyIfActive: true },
+						{ section: 'full_ban', key: 'mode', value: '"off"', onlyIfActive: true },
+						{ section: 'upnp', key: 'mode', value: '"off"', onlyIfActive: true },
+						{ section: 'http', key: 'enabled', value: 'false' }
+					]
+				};
+			}
+
+			return null;
+		}
+
+		var sceneBtns = document.querySelectorAll('#pcdn-presets button[data-scene]');
+		for (var i = 0; i < sceneBtns.length; i++) {
+			sceneBtns[i].onclick = function() {
+				var sc = buildScenePreset(this.getAttribute('data-scene'));
+				if (!sc) return;
+				applyPreset(sc.title, sc.patches, sc.hint);
+			};
+		}
+
+		var httpBtns = document.querySelectorAll('#pcdn-presets button[data-http-preset]');
+		for (var j = 0; j < httpBtns.length; j++) {
+			httpBtns[j].onclick = function() {
+				var mode = this.getAttribute('data-http-preset');
+				if (mode === 'off') {
+					applyPreset('关闭 HTTP API', [
+						{ section: 'http', key: 'enabled', value: 'false' }
+					]);
+					return;
+				}
+
+				var tk = ensureHttpToken();
+				if (mode === 'local') {
+					applyPreset('启用本机 HTTP API（代理模式）', [
+						{ section: 'http', key: 'enabled', value: 'true' },
+						{ section: 'http', key: 'listen', value: '"127.0.0.1:8080"' },
+						{ section: 'http', key: 'token', value: '"' + tk.token + '"' }
+					], tk.generated ? ('已自动生成 24 位随机密钥：' + tk.token) : '已保留原有 [http] token');
+					return;
+				}
+
+				if (mode === 'direct') {
+					var origin = (window.location && window.location.origin)
+						|| (window.location.protocol + '//' + window.location.host);
+					var hint = (tk.generated ? ('已自动生成 24 位随机密钥：' + tk.token + '\n') : '')
+						+ '保存后可在「概览 → 服务设置」开启「直连后端 API（绕过 LuCI 代理）」。';
+					applyPreset('启用局域网直连 HTTP API', [
+						{ section: 'http', key: 'enabled', value: 'true' },
+						{ section: 'http', key: 'listen', value: '"0.0.0.0:8080"' },
+						{ section: 'http', key: 'token', value: '"' + tk.token + '"' },
+						{ section: 'http', key: 'cors_allowed_origins', value: '["' + origin + '"]' }
+					], hint);
+				}
+			};
+		}
+
+		var fwBtns = document.querySelectorAll('#pcdn-presets button[data-fw-preset]');
+		for (var f = 0; f < fwBtns.length; f++) {
+			fwBtns[f].onclick = function() {
+				var mode = this.getAttribute('data-fw-preset');
+				if (mode === 'off') {
+					applyPreset('防火墙：关闭', [
+						{ section: 'firewall', key: 'enabled', value: 'false', onlyIfActive: true }
+					]);
+				} else if (mode === 'nftables' || mode === 'iptables') {
+					applyPreset('防火墙：' + mode, [
+						{ section: 'firewall', key: 'enabled', value: 'true' },
+						{ section: 'firewall', key: 'backend', value: '"' + mode + '"' }
+					]);
+				}
+			};
+		}
+
+		var fbBtns = document.querySelectorAll('#pcdn-presets button[data-fullban-preset]');
+		for (var b = 0; b < fbBtns.length; b++) {
+			fbBtns[b].onclick = function() {
+				var mode = this.getAttribute('data-fullban-preset');
+				if (mode === 'off') {
+					applyPreset('全 UDP 端口封禁：关闭', [
+						{ section: 'full_ban', key: 'mode', value: '"off"', onlyIfActive: true }
+					]);
+					return;
+				}
+
+				var map = readSectionMap(editor.value);
+				var fwEn = (map.firewall && map.firewall.enabled) || 'false';
+				var patches = [
+					{ section: 'full_ban', key: 'mode', value: '"' + mode + '"' }
+				];
+				var hint = '';
+				if (fwEn !== 'true') {
+					var backend = resolveFirewallBackend(map);
+					patches.unshift(
+						{ section: 'firewall', key: 'enabled', value: 'true' },
+						{ section: 'firewall', key: 'backend', value: '"' + backend + '"' }
+					);
+					hint = '全 UDP 端口封禁依赖 [firewall]，已同步启用防火墙对接（backend = "' + backend + '"）。';
+				}
+				applyPreset('全 UDP 端口封禁：' + mode, patches, hint);
+			};
+		}
+
+		var kvBtns = document.querySelectorAll('#pcdn-presets button[data-kv]');
+		for (var k = 0; k < kvBtns.length; k++) {
+			kvBtns[k].onclick = function() {
+				var pair = (this.getAttribute('data-kv') || '').split('.');
+				var val = this.getAttribute('data-val') || '';
+				if (pair.length !== 2) return;
+				applyPreset('[' + pair[0] + '] ' + pair[1] + ' = ' + val, [
+					{ section: pair[0], key: pair[1], value: val }
+				]);
+			};
+		}
+	}
+
 	window.onbeforeunload = function() {
 		if (dirty) return '配置尚未保存，确定离开？';
 	};
 
+	bindPresets();
 	renderGutter();
+	syncPresetState();
 	load();
 })();
 //]]></script>
