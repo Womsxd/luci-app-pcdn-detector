@@ -1,5 +1,8 @@
 <%#
- luci-app-pcdn-detector 配置编辑页：完整 TOML 文本（纯文本，无解析）
+ luci-app-pcdn-detector 配置编辑页：完整 TOML 文本
+ - 保存路径始终是原文回传 + 后端校验，编辑器内容不会被重新序列化
+ - 预设改值默认由 @decimalturn/toml-patch 完成（保留注释/格式）
+ - 不支持 <script type="module"> 的浏览器退回内置的纯文本补丁实现
 -%>
 
 <style>
@@ -643,6 +646,333 @@
 		};
 	}
 
+	/* ============ 基于 @decimalturn/toml-patch 的实现（现代浏览器默认路径） ============
+	 * 库负责解析与就地改值（多行数组、转义、点号键都能正确处理）。它的文档模型里
+	 * 不存在「被注释掉的键」，所以模板中 # [section] / # key = value 的展开仍由文本层
+	 * 完成，之后统一交给 doc.patch() 回写。加载不到库时退回上面的纯文本实现。 */
+
+	var TOML_MODULE_OK = (function() {
+		var s = document.createElement('script');
+		return 'noModule' in s;
+	})();
+
+	function tomlLib() {
+		var lib = window.PcdnTomlLib;
+		return (lib && typeof lib.parseDocument === 'function' && typeof lib.parse === 'function') ? lib : null;
+	}
+
+	// module 脚本延迟执行：首次交互时可能还没就绪，短暂等待后仍无则退回旧实现
+	function withTomlLib(cb) {
+		var lib = tomlLib();
+		if (lib) { cb(lib); return; }
+		if (!TOML_MODULE_OK || window.PcdnTomlLibFailed) { cb(null); return; }
+
+		var waited = 0;
+		(function poll() {
+			var l = tomlLib();
+			if (l) { cb(l); return; }
+			if (window.PcdnTomlLibFailed || waited >= 2000) { cb(null); return; }
+			waited += 50;
+			setTimeout(poll, 50);
+		})();
+	}
+
+	// JS 值 → TOML 字面量，仅用于把解析结果还原成旧实现期望的「原文字面量」形态
+	function tomlLiteral(v) {
+		var i, out;
+
+		if (typeof v === 'string') return JSON.stringify(v);
+		if (typeof v === 'boolean' || typeof v === 'number') return String(v);
+		if (typeof v === 'bigint') return String(v);
+		if (Object.prototype.toString.call(v) === '[object Date]') return v.toISOString();
+		if (Object.prototype.toString.call(v) === '[object Array]') {
+			out = [];
+			for (i = 0; i < v.length; i++) out.push(tomlLiteral(v[i]));
+			return '[' + out.join(', ') + ']';
+		}
+		if (v && typeof v === 'object') {
+			out = [];
+			for (i in v) {
+				if (Object.prototype.hasOwnProperty.call(v, i)) out.push(i + ' = ' + tomlLiteral(v[i]));
+			}
+			return '{ ' + out.join(', ') + ' }';
+		}
+		return '';
+	}
+
+	// 用库解析出 { "section": { key: 字面量 } }，形态与 readSectionMap 一致（含点号段名）
+	function readSectionMapLib(lib, text) {
+		var map = {};
+		var obj;
+
+		try { obj = lib.parse(String(text || '')); } catch (e) { return null; }
+		if (!obj || typeof obj !== 'object') return null;
+
+		function walk(table, prefix) {
+			var k, v, full, isArr, isObj;
+
+			for (k in table) {
+				if (!Object.prototype.hasOwnProperty.call(table, k)) continue;
+				v = table[k];
+				isArr = Object.prototype.toString.call(v) === '[object Array]';
+				isObj = !!v && typeof v === 'object' && !isArr
+					&& Object.prototype.toString.call(v) !== '[object Date]';
+				full = prefix ? (prefix + '.' + k) : k;
+
+				if (isObj) {
+					if (!map[full]) map[full] = {};
+					walk(v, full);
+					continue;
+				}
+				if (isArr || !prefix) continue;
+				if (!map[prefix]) map[prefix] = {};
+				map[prefix][k] = tomlLiteral(v);
+			}
+		}
+
+		walk(obj, '');
+		return map;
+	}
+
+	function currentSectionMap() {
+		var lib = tomlLib();
+		var map;
+
+		if (lib) {
+			map = readSectionMapLib(lib, editor.value);
+			if (map) return map;
+		}
+		return readSectionMap(editor.value);
+	}
+
+	function libFindSectionRange(lines, secName) {
+		var start = -1;
+		var commented = false;
+		var end = lines.length;
+		var i, j, hdr;
+
+		for (var pass = 0; pass < 2 && start < 0; pass++) {
+			for (i = 0; i < lines.length; i++) {
+				hdr = parseSectionHeader(lines[i], true);
+				if (!hdr || hdr.isArray) continue;
+				if (hdr.name === secName && hdr.commented === (pass === 1)) {
+					start = i;
+					commented = hdr.commented;
+					break;
+				}
+			}
+		}
+
+		if (start < 0) return null;
+
+		for (j = start + 1; j < lines.length; j++) {
+			if (parseSectionHeader(lines[j], true)) {
+				end = j;
+				break;
+			}
+		}
+
+		return { start: start, end: end, commented: commented };
+	}
+
+	function libFindKeyLine(lines, range, key, commented) {
+		var parts, cm, cparts, m;
+
+		for (var i = range.start + 1; i < range.end; i++) {
+			if (commented) {
+				cm = lines[i].match(/^([ \t]*)#[ \t]*(.*)$/);
+				if (!cm) continue;
+				cparts = splitLineComment(cm[2]);
+				m = cparts.code.match(/^([A-Za-z0-9_-]+)([ \t]*=[ \t]*)(.*?)[ \t]*$/);
+				if (!m || !isValidTomlLiteral(m[3])) continue;
+				if (m[1] === key) return i;
+			} else {
+				parts = splitLineComment(lines[i]);
+				m = parts.code.match(/^([ \t]*)([A-Za-z0-9_-]+)([ \t]*=[ \t]*)(.*?)[ \t]*$/);
+				if (!m || m[4] === '') continue;
+				if (m[2] === key) return i;
+			}
+		}
+
+		return -1;
+	}
+
+	function libParseLiteral(lib, literal) {
+		try { return lib.parse('v = ' + literal).v; } catch (e) { return undefined; }
+	}
+
+	function libSameLiteral(lib, a, b) {
+		var va = libParseLiteral(lib, a);
+		var vb = libParseLiteral(lib, b);
+
+		if (va === undefined || vb === undefined) {
+			return String(a).replace(/^\s+|\s+$/g, '') === String(b).replace(/^\s+|\s+$/g, '');
+		}
+		try { return JSON.stringify(va) === JSON.stringify(vb); } catch (e) { return false; }
+	}
+
+	// 注释行就地改值，保留缩进与行尾注释
+	function libRewriteLine(line, value) {
+		var m = line.match(/^([ \t]*)#[ \t]*(.*)$/);
+		if (!m) return line;
+
+		var parts = splitLineComment(m[2]);
+		var km = parts.code.match(/^([A-Za-z0-9_-]+)([ \t]*=[ \t]*)(.*?)[ \t]*$/);
+		if (!km) return line;
+
+		return m[1] + km[1] + km[2] + value + parts.comment;
+	}
+
+	// 本行是否为未闭合的多行数组/内联表起点，返回需要配对的括号
+	function libMultilineCloser(code) {
+		var m = code.match(/^[ \t]*[A-Za-z0-9_-]+[ \t]*=[ \t]*([\[{])/);
+		if (!m) return '';
+
+		var close = m[1] === '[' ? ']' : '}';
+		return code.indexOf(close, m.index) < 0 ? close : '';
+	}
+
+	// 段内最后一个键值行（含注释键），用于决定新增键的插入位置
+	function libLastKeyLine(lines, range) {
+		var last = -1;
+		var parts, cm, cparts, m, closer;
+
+		for (var i = range.start + 1; i < range.end; i++) {
+			parts = splitLineComment(lines[i]);
+			if (/^[ \t]*[A-Za-z0-9_-]+[ \t]*=[ \t]*\S/.test(parts.code)) {
+				last = i;
+				// 多行值：跳过整个值，避免把新键插进数组中间
+				closer = libMultilineCloser(parts.code);
+				while (closer && i + 1 < range.end) {
+					i++;
+					last = i;
+					if (lines[i].indexOf(closer) >= 0) break;
+				}
+				continue;
+			}
+
+			cm = lines[i].match(/^([ \t]*)#[ \t]*(.*)$/);
+			if (!cm) continue;
+			cparts = splitLineComment(cm[2]);
+			m = cparts.code.match(/^([A-Za-z0-9_-]+)([ \t]*=[ \t]*)(.*?)[ \t]*$/);
+			if (m && isValidTomlLiteral(m[3])) last = i;
+		}
+
+		return last;
+	}
+
+	function libSetValue(lib, obj, item) {
+		var parts = String(item.section).split('.');
+		var v = libParseLiteral(lib, item.value);
+		var tbl = obj;
+
+		if (v === undefined) throw new Error('invalid literal: ' + item.value);
+
+		for (var i = 0; i < parts.length; i++) {
+			if (!tbl[parts[i]] || typeof tbl[parts[i]] !== 'object'
+				|| Object.prototype.toString.call(tbl[parts[i]]) === '[object Array]') {
+				tbl[parts[i]] = {};
+			}
+			tbl = tbl[parts[i]];
+		}
+
+		tbl[item.key] = v;
+	}
+
+	function applyTomlPatchesLib(lib, text, patches) {
+		var lines = String(text || '').replace(/\r\n/g, '\n').split('\n');
+		var applied = [];
+		var changed = [];
+		var toSet = [];
+		var firstChanged = 0;
+		var firstMatched = 0;
+		var item, range, line, m, parts, oldVal;
+
+		for (var p = 0; p < patches.length; p++) {
+			item = patches[p];
+			range = libFindSectionRange(lines, item.section);
+			if (!range) continue;                       // 段不存在：与旧实现一致，不新建段
+
+			// 1. 段内已生效的键：交给库改值
+			line = libFindKeyLine(lines, range, item.key, false);
+			if (line >= 0) {
+				parts = splitLineComment(lines[line]);
+				m = parts.code.match(/^([ \t]*)([A-Za-z0-9_-]+)([ \t]*=[ \t]*)(.*?)[ \t]*$/);
+				oldVal = m ? m[4] : '';
+				if (!firstMatched) firstMatched = line + 1;
+				if (!libSameLiteral(lib, oldVal, item.value)) {
+					toSet.push(item);
+					changed.push('[' + item.section + '] ' + item.key + ': '
+						+ ((oldVal === '[' || oldVal === '{') ? '(多行值)' : oldVal) + ' → ' + item.value);
+					if (!firstChanged) firstChanged = line + 1;
+				}
+				applied.push('[' + item.section + '] ' + item.key + ' = ' + item.value);
+				continue;
+			}
+
+			// onlyIfActive：键尚未取消注释（沿用上游内置默认值）时不主动展开
+			if (item.onlyIfActive) {
+				applied.push('[' + item.section + '] ' + item.key + ' = ' + item.value);
+				if (!firstMatched) firstMatched = range.start + 1;
+				continue;
+			}
+
+			// 2. 模板注释键（# key = value）：就地取消注释并写入目标值
+			line = libFindKeyLine(lines, range, item.key, true);
+			if (line >= 0) {
+				if (range.commented) {
+					lines[range.start] = lines[range.start].replace(/^([ \t]*)#[ \t]*/, '$1');
+					range.commented = false;
+				}
+				lines[line] = libRewriteLine(lines[line], item.value);
+				changed.push('[' + item.section + '] ' + item.key + ': (取消注释) → ' + item.value);
+				if (!firstChanged) firstChanged = line + 1;
+				if (!firstMatched) firstMatched = line + 1;
+				applied.push('[' + item.section + '] ' + item.key + ' = ' + item.value);
+				continue;
+			}
+
+			// optional 键仅在模板中已存在该键时修改
+			if (item.optional) continue;
+
+			// 3. 兜底：模板里没有该键，插到本段最后一个键值行之后。
+			//    不交给 doc.patch()：它会把新键插到段尾注释块之后，位置难以预期。
+			if (range.commented) {
+				lines[range.start] = lines[range.start].replace(/^([ \t]*)#[ \t]*/, '$1');
+				range.commented = false;
+			}
+			var last = libLastKeyLine(lines, range);
+			var at = last >= 0 ? (last + 1) : (range.start + 1);
+			lines.splice(at, 0, item.key + ' = ' + item.value);
+			applied.push('[' + item.section + '] ' + item.key + ' = ' + item.value);
+			changed.push('[' + item.section + '] ' + item.key + ': (新增) → ' + item.value);
+			if (!firstChanged) firstChanged = at + 1;
+			if (!firstMatched) firstMatched = at + 1;
+		}
+
+		var out = lines.join('\n');
+
+		if (toSet.length) {
+			var doc, obj;
+			try {
+				doc = lib.parseDocument(out);
+				obj = doc.toJsObject;
+				for (var i = 0; i < toSet.length; i++) libSetValue(lib, obj, toSet[i]);
+				doc.patch(obj);
+				out = doc.toTomlString;
+			} catch (e) {
+				return null;                            // 交给旧的文本实现兜底
+			}
+		}
+
+		return {
+			text: out,
+			applied: applied,
+			changed: changed,
+			firstLine: firstChanged || firstMatched
+		};
+	}
+
 	function randomToken(len) {
 		var chars = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789';
 		var out = '';
@@ -693,7 +1023,7 @@
 
 	// 根据编辑器当前文本同步预设按钮高亮状态（未显式配置的项按上游内置默认值判定）
 	function syncPresetState() {
-		var map = readSectionMap(editor.value);
+		var map = currentSectionMap();
 		var get = function(sec, k) { return (map[sec] && map[sec][k]) || ''; };
 		var DEFAULTS = {
 			'capture.protocol': '"udp"',
@@ -823,7 +1153,15 @@
 			return;
 		}
 
-		var res = applyTomlPatches(editor.value, patches);
+		// 默认走 toml-patch 实现；库未就绪或解析失败时退回纯文本实现
+		withTomlLib(function(lib) {
+			var res = lib ? applyTomlPatchesLib(lib, editor.value, patches) : null;
+			if (!res) res = applyTomlPatches(editor.value, patches);
+			applyPresetResult(title, res, extraHint);
+		});
+	}
+
+	function applyPresetResult(title, res, extraHint) {
 		if (!res.applied.length) {
 			showPresetHint('未找到可修改的目标配置段，请确认配置文件包含对应 [section]。');
 			showResult('未找到可修改的目标配置段，请确认配置文件包含对应 [section]。', false);
@@ -1074,7 +1412,7 @@
 	};
 
 	function ensureHttpToken() {
-		var map = readSectionMap(editor.value);
+		var map = currentSectionMap();
 		var raw = (map.http && map.http.token) || '';
 		var cur = unquote(raw);
 		if (cur) return { token: cur, generated: false };
@@ -1083,7 +1421,7 @@
 
 	function bindPresets() {
 		function buildScenePreset(name) {
-			var map = readSectionMap(editor.value);
+			var map = currentSectionMap();
 
 			if (name === 'standard') {
 				return {
@@ -1258,7 +1596,7 @@
 					return;
 				}
 
-				var map = readSectionMap(editor.value);
+				var map = currentSectionMap();
 				var fwEn = (map.firewall && map.firewall.enabled) || 'false';
 				var patches = [
 					{ section: 'full_ban', key: 'mode', value: '"' + mode + '"' }
@@ -1299,3 +1637,14 @@
 	load();
 })();
 //]]></script>
+
+<script type="module">
+	// 默认使用 @decimalturn/toml-patch（vendored，MIT）解析与改值。
+	// 不支持 type="module" 的老浏览器不会执行本块，页面自动退回内置纯文本实现。
+	import('<%=resource%>/pcdn-detector/toml-patch.js').then(function(m) {
+		window.PcdnTomlLib = m;
+		try { syncPresetState(); } catch (e) {}
+	}, function() {
+		window.PcdnTomlLibFailed = true;
+	});
+</script>

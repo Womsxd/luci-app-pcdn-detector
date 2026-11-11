@@ -20,7 +20,7 @@ include $(TOPDIR)/rules.mk
 
 PKG_NAME:=luci-app-pcdn-detector
 PKG_VERSION:=1.0.2
-PKG_RELEASE:=3
+PKG_RELEASE:=4
 PKG_MAINTAINER:=Womsxd <https://github.com/Womsxd>
 
 PKG_BUILD_DIR:=$(BUILD_DIR)/$(PKG_NAME)
@@ -64,6 +64,11 @@ endef
 define Package/luci-app-pcdn-detector/install
 	$(INSTALL_DIR) $(1)/usr/lib/lua/luci
 	cp -pR ./luasrc/* $(1)/usr/lib/lua/luci
+
+	# 前端第三方资源：@decimalturn/toml-patch 3.3.2（MIT，许可见 third_party/toml-patch/LICENSE）
+	# 页面按 /luci-static/resources/pcdn-detector/toml-patch.js 加载，/www 即 /luci-static
+	$(INSTALL_DIR) $(1)/www/luci-static/resources/pcdn-detector
+	cp -pR ./third_party/toml-patch/toml-patch.js $(1)/www/luci-static/resources/pcdn-detector/
 
 	$(INSTALL_DIR) $(1)/
 	cp -pR ./root/* $(1)/
