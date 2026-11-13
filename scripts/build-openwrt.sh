@@ -246,6 +246,10 @@ copy_package() {
 
 	cp -a "$ROOT_DIR/Makefile" "$pkgdir/"
 	cp -a "$ROOT_DIR/luasrc" "$ROOT_DIR/root" "$ROOT_DIR/po" "$pkgdir/"
+	# 前端第三方资源（页面按 /luci-static/resources/pcdn-detector/ 加载）
+	if [ -d "$ROOT_DIR/third_party" ]; then
+		cp -a "$ROOT_DIR/third_party" "$pkgdir/"
+	fi
 
 	chmod 755 \
 		"$pkgdir/root/etc/init.d/pcdn-detector" \
