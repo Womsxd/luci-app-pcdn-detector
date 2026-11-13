@@ -99,7 +99,7 @@
 	var timer = null;
 	var loading = false;
 	var loadTimer = null;
-	var lastText = '';
+	var lastText = null;   // 上一次渲染进日志框的文本，null 表示尚未渲染
 	var lastUpdate = null;
 
 	function $(id) { return document.getElementById(id); }
@@ -132,11 +132,14 @@
 		loadTimer = setTimeout(finish, 15000);
 
 		var follow = atBottom(box);
-		var params = 'lines=' + encodeURIComponent($('pcdn-log-lines').value)
-			+ '&level=' + encodeURIComponent($('pcdn-log-level').value)
-			+ '&keyword=' + encodeURIComponent($('pcdn-log-keyword').value || '');
+		// 查询串交给 XHR.get 组装：部分固件的 XHR.get 会无条件追加 '?'，自己拼会多出一个
+		var params = {
+			lines: $('pcdn-log-lines').value,
+			level: $('pcdn-log-level').value,
+			keyword: $('pcdn-log-keyword').value || ''
+		};
 
-		XHR.get(U + '?' + params, null, function(x, data) {
+		XHR.get(U, params, function(x, data) {
 			finish();
 
 			if (!x || x.status !== 200) {
@@ -145,26 +148,26 @@
 			}
 
 			var text = x.responseText || '';
-			lastText = text;
 			lastUpdate = new Date();
 
-			if (text.replace(/\s+/g, '') === '') {
-				box.textContent = '暂无匹配日志。\n\n可能原因：服务尚未启动、日志等级为 warn/error 没有业务日志、或监听网卡尚未产生流量。';
+			// 内容没变就不碰 DOM：否则每次轮询都会清掉用户选中的文本、并整块重新排版
+			if (text !== lastText) {
+				lastText = text;
+				box.textContent = text.replace(/\s+/g, '') === ''
+					? '暂无匹配日志。\n\n可能原因：服务尚未启动、日志等级为 warn/error 没有业务日志、或监听网卡尚未产生流量。'
+					: text;
+				if (follow) {
+					box.scrollTop = box.scrollHeight;
+				}
+			}
+
+			var stamp = '最后刷新：' + lastUpdate.toLocaleTimeString();
+			if (text === '') {
+				setInfo(stamp + '　暂无日志', true);
 			} else {
-				box.textContent = text;
-			}
-
-			if (follow) {
-				box.scrollTop = box.scrollHeight;
-			}
-
-			var size = text.length;
-			setInfo('最后刷新：' + lastUpdate.toLocaleTimeString()
-				+ '　共 ' + (text === '' ? 0 : text.replace(/\n$/, '').split('\n').length) + ' 行'
-				+ '　' + (paused ? '已暂停自动刷新' : '自动刷新中'), true);
-
-			if (size === 0) {
-				setInfo('最后刷新：' + lastUpdate.toLocaleTimeString() + '　暂无日志', true);
+				setInfo(stamp
+					+ '　共 ' + text.replace(/\n$/, '').split('\n').length + ' 行'
+					+ '　' + (paused ? '已暂停自动刷新' : '自动刷新中'), true);
 			}
 		});
 	}
@@ -201,7 +204,7 @@
 
 	$('pcdn-log-clear').onclick = function() {
 		box.textContent = '';
-		lastText = '';
+		lastText = null;
 	};
 
 	$('pcdn-log-download').onclick = function() {

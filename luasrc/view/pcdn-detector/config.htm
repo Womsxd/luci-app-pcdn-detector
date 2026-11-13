@@ -1,7 +1,7 @@
 <%#
  luci-app-pcdn-detector 配置编辑页：完整 TOML 文本
  - 保存路径始终是原文回传 + 后端校验，编辑器内容不会被重新序列化
- - 预设改值默认由 @decimalturn/toml-patch 完成（保留注释/格式）
+ - 预设改值由 @decimalturn/toml-patch 完成（保留注释/格式），该库在首次应用预设时按需加载
  - 不支持 <script type="module"> 的浏览器退回内置的纯文本补丁实现
 -%>
 
@@ -651,30 +651,48 @@
 	 * 不存在「被注释掉的键」，所以模板中 # [section] / # key = value 的展开仍由文本层
 	 * 完成，之后统一交给 doc.patch() 回写。加载不到库时退回上面的纯文本实现。 */
 
-	var TOML_MODULE_OK = (function() {
-		var s = document.createElement('script');
-		return 'noModule' in s;
-	})();
-
 	function tomlLib() {
 		var lib = window.PcdnTomlLib;
 		return (lib && typeof lib.parseDocument === 'function' && typeof lib.parse === 'function') ? lib : null;
 	}
 
-	// module 脚本延迟执行：首次交互时可能还没就绪，短暂等待后仍无则退回旧实现
+	// 库约 175 KB，只在首次应用预设时按需加载：纯手改文本的用户不必下载。
+	// 页面底部 module 脚本会注册 window.PcdnTomlImport；老浏览器没有该函数，退回旧实现。
 	function withTomlLib(cb) {
 		var lib = tomlLib();
 		if (lib) { cb(lib); return; }
-		if (!TOML_MODULE_OK || window.PcdnTomlLibFailed) { cb(null); return; }
+		if (window.PcdnTomlLibFailed || typeof window.PcdnTomlImport !== 'function') { cb(null); return; }
 
-		var waited = 0;
-		(function poll() {
-			var l = tomlLib();
-			if (l) { cb(l); return; }
-			if (window.PcdnTomlLibFailed || waited >= 2000) { cb(null); return; }
-			waited += 50;
-			setTimeout(poll, 50);
-		})();
+		// 连续点多个预设时只发起一次加载，全部回调在加载完成后统一执行
+		if (window.PcdnTomlWait) {
+			window.PcdnTomlWait.push(cb);
+			return;
+		}
+		window.PcdnTomlWait = [cb];
+
+		function settle(l) {
+			var list = window.PcdnTomlWait || [];
+			window.PcdnTomlWait = null;
+			for (var i = 0; i < list.length; i++) list[i](l);
+		}
+
+		try {
+			window.PcdnTomlImport().then(function(m) {
+				window.PcdnTomlLib = m;
+				settle(m);
+			}, function() {
+				window.PcdnTomlLibFailed = true;
+				settle(null);
+			});
+		} catch (e) {
+			window.PcdnTomlLibFailed = true;
+			settle(null);
+		}
+
+		// 兜底：下载很慢时先用文本实现，避免点击后长时间没有反应
+		setTimeout(function() {
+			if (window.PcdnTomlWait) settle(null);
+		}, 5000);
 	}
 
 	// JS 值 → TOML 字面量，仅用于把解析结果还原成旧实现期望的「原文字面量」形态
@@ -1258,10 +1276,27 @@
 		xhr.send(text);
 	}
 
-	// 配置超过 LuCI 单次 body 限制时分片上传：
-	// 每片最多 1000 个字符（UTF-8 最多约 4000 字节），远低于 8 KiB 限制。
+	// LuCI 单次请求的 body 上限约 8 KiB：不超过该阈值时一次提交即可，
+	// 只有确实超限的配置才走分片，避免每次保存都拉起十几个 CGI。
+	var SINGLE_MAX_BYTES = 7000;
+
+	// 分片时每片 1600 个字符（UTF-8 最坏约 6.4 KB），仍在后端 16 KiB 上限之内。
+	var CHUNK = 1600;
+
+	function utf8Bytes(text) {
+		var n = 0;
+		for (var i = 0; i < text.length; i++) {
+			var c = text.charCodeAt(i);
+			if (c < 0x80) n += 1;
+			else if (c < 0x800) n += 2;
+			else if (c >= 0xD800 && c <= 0xDBFF) { n += 4; i++; }
+			else n += 3;
+		}
+		return n;
+	}
+
+	// 配置超过 LuCI 单次 body 限制时分片上传
 	function saveChunked(content, validateOnly, cb) {
-		var CHUNK = 1000;
 		var offset = 0;
 		var index = 0;
 		var total = content.length;
@@ -1324,7 +1359,7 @@
 		setBusy(true);
 		showResult(validateOnly ? '正在校验…' : '正在保存…', true);
 
-		saveChunked(content, validateOnly, function(x, d) {
+		function done(x, d) {
 			setBusy(false);
 
 			if (!d) {
@@ -1340,7 +1375,31 @@
 				dirty = false;
 				setState();
 			}
-		});
+		}
+
+		var token = luciToken();
+		var qs = validateOnly ? 'validate=1' : '';
+		if (token) qs += (qs ? '&' : '') + 'token=' + encodeURIComponent(token);
+
+		// 未超限的配置一次提交（后端 saveconfig 直接收原始 body）
+		if (utf8Bytes(content) <= SINGLE_MAX_BYTES) {
+			xhrPostText(U.save + (qs ? '?' + qs : ''), content, done);
+			return;
+		}
+
+		saveChunked(content, validateOnly, done);
+	}
+
+	// 重建行号与重算预设高亮成本较高（全文扫描 + 完整 TOML 解析），
+	// 合并成一次延时任务；光标行列仍由 keyup / selectionchange 即时更新。
+	var editTimer = null;
+	function scheduleEdit() {
+		if (editTimer) clearTimeout(editTimer);
+		editTimer = setTimeout(function() {
+			editTimer = null;
+			renderGutter();
+			syncPresetState();
+		}, 150);
 	}
 
 	editor.oninput = function() {
@@ -1348,8 +1407,8 @@
 			dirty = true;
 			setState();
 		}
-		renderGutter();
-		syncPresetState();
+		updateCursor();
+		scheduleEdit();
 	};
 
 	editor.onscroll = syncGutterScroll;
@@ -1376,8 +1435,13 @@
 			ev.preventDefault();
 			var start = editor.selectionStart;
 			var end = editor.selectionEnd;
-			editor.value = editor.value.substring(0, start) + '\t' + editor.value.substring(end);
-			editor.selectionStart = editor.selectionEnd = start + 1;
+			// 直接改 value 会清掉撤销栈（Ctrl+Z 会一次回滚整段输入），优先用 setRangeText
+			if (typeof editor.setRangeText === 'function') {
+				editor.setRangeText('\t', start, end, 'end');
+			} else {
+				editor.value = editor.value.substring(0, start) + '\t' + editor.value.substring(end);
+				editor.selectionStart = editor.selectionEnd = start + 1;
+			}
 			editor.oninput();
 		}
 	};
@@ -1627,9 +1691,21 @@
 		}
 	}
 
-	window.onbeforeunload = function() {
-		if (dirty) return '配置尚未保存，确定离开？';
-	};
+	// 用 addEventListener 而不是覆盖 window.onbeforeunload，避免顶掉 LuCI 自己的离开确认
+	if (window.addEventListener) {
+		window.addEventListener('beforeunload', function(ev) {
+			if (!dirty) return;
+			ev.preventDefault();
+			ev.returnValue = '配置尚未保存，确定离开？';
+			return ev.returnValue;
+		});
+	} else {
+		var prevUnload = window.onbeforeunload;
+		window.onbeforeunload = function(ev) {
+			if (typeof prevUnload === 'function') prevUnload.call(window, ev);
+			if (dirty) return '配置尚未保存，确定离开？';
+		};
+	}
 
 	bindPresets();
 	renderGutter();
@@ -1639,12 +1715,9 @@
 //]]></script>
 
 <script type="module">
-	// 默认使用 @decimalturn/toml-patch（vendored，MIT）解析与改值。
-	// 不支持 type="module" 的老浏览器不会执行本块，页面自动退回内置纯文本实现。
-	import('<%=resource%>/pcdn-detector/toml-patch.js').then(function(m) {
-		window.PcdnTomlLib = m;
-		try { syncPresetState(); } catch (e) {}
-	}, function() {
-		window.PcdnTomlLibFailed = true;
-	});
+	// @decimalturn/toml-patch（vendored，MIT）按需加载入口：只在首次应用预设时 import。
+	// 不支持 type="module" 的老浏览器不会执行本块，页面自动退回内置的纯文本实现。
+	window.PcdnTomlImport = function() {
+		return import('<%=resource%>/pcdn-detector/toml-patch.js');
+	};
 </script>

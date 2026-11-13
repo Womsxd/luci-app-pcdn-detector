@@ -146,6 +146,8 @@
 	var info = {};
 	var timer = null;
 	var urlEdited = false;
+	var pollFails = 0;    // 连续读取失败次数
+	var lastLog = null;   // 上一次渲染的进度文本
 
 	// 兼容不同 LuCI：部分固件的 XHR 没有 post 方法
 	function xhrPost(url, data, cb) {
@@ -311,17 +313,34 @@
 			timer = null;
 		}
 
-		XHR.get(U.log, null, function(x, d) {
-			if (!d) return;
+		// 页面在后台时降低轮询频率，避免长时间挂着的标签页反复请求
+		var delay = document.hidden ? 4000 : 1200;
 
-			setProgress(d.log || '等待输出…');
+		XHR.get(U.log, null, function(x, d) {
+			// 单次失败不能让轮询链断掉，否则进度会永久停在“正在下载”
+			if (!d) {
+				if (++pollFails <= 5) {
+					timer = setTimeout(poll, delay + 1000);
+					return;
+				}
+				showMsg('读取进度失败，请刷新页面后重试。', false);
+				return;
+			}
+
+			pollFails = 0;
+
+			var text = d.log || '';
+			if (text !== lastLog) {
+				lastLog = text;
+				setProgress(text || '等待输出…');
+			}
 
 			if (d.running) {
 				showMsg('正在下载 / 安装，请勿关闭页面…', true);
-				timer = setTimeout(poll, 1200);
+				timer = setTimeout(poll, delay);
 			} else {
-				var failed = (d.log || '').indexOf('更新失败') >= 0;
-				setProgress((d.log || '') + '\n\n任务已结束。');
+				var failed = text.indexOf('更新失败') >= 0;
+				setProgress(text + '\n\n任务已结束。');
 				showMsg(failed ? '更新失败，详见上方输出。' : '更新完成，请查看上方输出确认版本。', !failed);
 				loadInfo(true);
 			}
@@ -394,6 +413,8 @@
 		}
 
 		setProgress('正在创建下载任务…');
+		lastLog = '正在创建下载任务…';
+		pollFails = 0;
 		xhrPost(U.run, { url: url }, function(x, d) {
 			if (!d || !d.ok) {
 				showMsg((d && d.message) || '无法启动下载任务', false);

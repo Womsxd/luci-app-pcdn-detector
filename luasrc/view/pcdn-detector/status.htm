@@ -278,6 +278,10 @@
 	var detail = null;    // { mac, family, state, limit, page }
 	var peerView = null;  // { mac, port, proto, v6, page, limit }
 
+	// 上一次渲染的统计数据快照：轮询结果没变化时不重建表格，
+	// 避免每 5 秒重置按钮焦点 / hover 状态与文本选择
+	var statsSig = null;
+
 	// 兼容不同 LuCI：部分固件的 XHR 没有 post 方法
 	function xhrPost(url, data, cb) {
 		if (window.XHR && typeof XHR.post === 'function') {
@@ -429,7 +433,8 @@
 			setText('pcdn-http-listen', httpText);
 			$('pcdn-http-listen').title = d.http_url || '';
 			setText('pcdn-http-token', d.http_token_set ? '密钥：已设置' : '密钥：未设置');
-			$('pcdn-btn-httpkey').disabled = false;
+			// 密钥从配置文件读取，没有程序文件时无从获取
+			$('pcdn-btn-httpkey').disabled = !d.bin_exists;
 			if (!httpEnabled) {
 				httpToken = '';
 				$('pcdn-btn-httpcopy').disabled = true;
@@ -483,12 +488,14 @@
 	function showStatsIdle(text) {
 		var box = $('pcdn-stats');
 		if (!box) return;
+		statsSig = null;   // 内容被占位文案替换，下次拿到数据必须重绘
 		box.innerHTML = '<p class="pcdn-muted" style="margin:0;">' + esc(text) + '</p>';
 	}
 
 	function showStatsDisabled() {
 		var box = $('pcdn-stats');
 		if (!box) return;
+		statsSig = null;
 		box.innerHTML = '<p class="pcdn-muted" style="margin:0;">'
 			+ 'HTTP API 未启用 <a href="' + U.config + '">前往配置</a></p>';
 	}
@@ -649,6 +656,11 @@
 
 	function renderStats(box, s, dv, devicesError) {
 		var devs = dv.devices || [];
+		var sig;
+
+		try { sig = JSON.stringify([s, dv, devicesError || '']); } catch (e) { sig = null; }
+		if (sig && sig === statsSig) return;
+		statsSig = sig;
 
 		var html = '<div class="pcdn-stats-cards">';
 		html += '<div class="pcdn-stat"><b>' + esc(s.tracked_devices || 0) + '</b><span>跟踪设备</span></div>';
@@ -1151,12 +1163,12 @@
 			} else {
 				showMsg('pcdn-hint', (d && d.message) || '操作失败', false);
 			}
-			setTimeout(refresh, 1200);
+			// 启动 / 重启需要时间：延时恢复按钮并刷新一次，避免连发两次 status 请求
 			setTimeout(function() {
 				var btns2 = document.querySelectorAll('.pcdn-actions button');
 				for (var k = 0; k < btns2.length; k++) btns2[k].disabled = false;
 				refresh();
-			}, 2500);
+			}, 1500);
 		});
 	}
 
