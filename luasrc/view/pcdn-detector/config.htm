@@ -556,6 +556,20 @@
 		for (var p = 0; p < patches.length; p++) {
 			var item = patches[p];
 			var range = findSectionRange(item.section);
+
+			// createSection：配置里没有该段时在文件末尾补建（模板中整段被删掉的老配置）
+			if (!range && item.createSection) {
+				if (lines.length && lines[lines.length - 1] !== '') lines.push('');
+				lines.push('[' + item.section + ']');
+				range = findSectionRange(item.section);
+				if (range) {
+					applied.push('[' + item.section + ']（新建配置段）');
+					changed.push('[' + item.section + ']: (新建配置段)');
+					if (!firstChangedLine) firstChangedLine = lines.length;
+					if (!firstMatchedLine) firstMatchedLine = lines.length;
+				}
+			}
+
 			if (!range) continue;
 
 			var found = -1;
@@ -571,8 +585,13 @@
 						if (m[2] === item.key) {
 							found = i;
 							var oldVal = m[4];
-							var nextLine = m[1] + m[2] + m[3] + item.value + parts.comment;
 							if (!firstMatchedLine) firstMatchedLine = i + 1;
+							// keepExisting：用户已显式配置的值保持不变，只补「仍为模板注释」的默认值
+							if (item.keepExisting) {
+								applied.push('[' + item.section + '] ' + item.key + ' = ' + oldVal);
+								break;
+							}
+							var nextLine = m[1] + m[2] + m[3] + item.value + parts.comment;
 							if (lines[i] !== nextLine) {
 								lines[i] = nextLine;
 								changed.push('[' + item.section + '] ' + item.key + ': ' + oldVal + ' → ' + item.value);
@@ -909,6 +928,20 @@
 		for (var p = 0; p < patches.length; p++) {
 			item = patches[p];
 			range = libFindSectionRange(lines, item.section);
+
+			// createSection：配置里没有该段时在文件末尾补建（模板中整段被删掉的老配置）
+			if (!range && item.createSection) {
+				if (lines.length && lines[lines.length - 1] !== '') lines.push('');
+				lines.push('[' + item.section + ']');
+				range = libFindSectionRange(lines, item.section);
+				if (range) {
+					applied.push('[' + item.section + ']（新建配置段）');
+					changed.push('[' + item.section + ']: (新建配置段)');
+					if (!firstChanged) firstChanged = lines.length;
+					if (!firstMatched) firstMatched = lines.length;
+				}
+			}
+
 			if (!range) continue;                       // 段不存在：与旧实现一致，不新建段
 
 			// 1. 段内已生效的键：交给库改值
@@ -918,6 +951,11 @@
 				m = parts.code.match(/^([ \t]*)([A-Za-z0-9_-]+)([ \t]*=[ \t]*)(.*?)[ \t]*$/);
 				oldVal = m ? m[4] : '';
 				if (!firstMatched) firstMatched = line + 1;
+				// keepExisting：用户已显式配置的值保持不变，只补「仍为模板注释」的默认值
+				if (item.keepExisting) {
+					applied.push('[' + item.section + '] ' + item.key + ' = ' + oldVal);
+					continue;
+				}
 				if (!libSameLiteral(lib, oldVal, item.value)) {
 					toSet.push(item);
 					changed.push('[' + item.section + '] ' + item.key + ': '
@@ -1030,6 +1068,46 @@
 			if (hookCmd) return 'hook';
 		}
 		return 'nftables';
+	}
+
+	// [firewall] 的后端专用项拆在 [firewall.iptables] / [firewall.nftables] 两个子段里，
+	// 模板中整段注释。只改 backend 会让所选后端的子配置一直是注释状态（既不可见也不可改），
+	// 因此切换后端时同步展开对应子段：
+	//   keepExisting  = 已生效的键保留用户当前值，只取消模板注释补默认值；
+	//   createSection = 配置里没有该子段时补建（旧版本配置或用户删掉了注释块）。
+	var FW_SUBKEYS = {
+		iptables: [
+			['chain', '"FORWARD"'],
+			['input_chain', '"INPUT"'],
+			['ban_chain', '"PCDN_DETECT"'],
+			['upnp_chain', '"PCDN_DETECT_UPNP"']
+		],
+		nftables: [
+			['table', '"pcdn_detect"'],
+			['set', '"banned"'],
+			['hook', '"prerouting"'],
+			['input_hook', '"input"']
+		]
+	};
+
+	function firewallBackendPatches(backend) {
+		var patches = [
+			{ section: 'firewall', key: 'enabled', value: 'true' },
+			{ section: 'firewall', key: 'backend', value: '"' + backend + '"' }
+		];
+		var keys = FW_SUBKEYS[backend] || [];
+
+		for (var i = 0; i < keys.length; i++) {
+			patches.push({
+				section: 'firewall.' + backend,
+				key: keys[i][0],
+				value: keys[i][1],
+				keepExisting: true,
+				createSection: true
+			});
+		}
+
+		return patches;
 	}
 
 	function showPresetHint(text) {
@@ -1506,20 +1584,21 @@
 
 			if (name === 'strict') {
 				var fwBackend = resolveFirewallBackend(map);
+				var strictPatches = [
+					{ section: 'capture', key: 'protocol', value: '"all"' },
+					{ section: 'detect', key: 'threshold', value: '15' },
+					{ section: 'detect', key: 'window', value: '"60s"' },
+					{ section: 'log', key: 'level', value: '"warn"' },
+					{ section: 'memory', key: 'low_memory', value: 'false' },
+					{ section: 'memory', key: 'max_ports', value: '512', onlyIfActive: true }
+				].concat(firewallBackendPatches(fwBackend)).concat([
+					{ section: 'full_ban', key: 'mode', value: '"on"' },
+					{ section: 'upnp', key: 'mode', value: '"on"' }
+				]);
+
 				return {
 					title: '严格封禁',
-					patches: [
-						{ section: 'capture', key: 'protocol', value: '"all"' },
-						{ section: 'detect', key: 'threshold', value: '15' },
-						{ section: 'detect', key: 'window', value: '"60s"' },
-						{ section: 'log', key: 'level', value: '"warn"' },
-						{ section: 'memory', key: 'low_memory', value: 'false' },
-						{ section: 'memory', key: 'max_ports', value: '512', onlyIfActive: true },
-						{ section: 'firewall', key: 'enabled', value: 'true' },
-						{ section: 'firewall', key: 'backend', value: '"' + fwBackend + '"' },
-						{ section: 'full_ban', key: 'mode', value: '"on"' },
-						{ section: 'upnp', key: 'mode', value: '"on"' }
-					],
+					patches: strictPatches,
 					hint: '已启用 [firewall]（后端：' + fwBackend + '，旧版 fw3 固件可在「常用项快切 → 防火墙」切为 iptables）、[full_ban] 与 [upnp]。'
 				};
 			}
@@ -1641,10 +1720,8 @@
 						{ section: 'firewall', key: 'enabled', value: 'false', onlyIfActive: true }
 					]);
 				} else if (mode === 'nftables' || mode === 'iptables') {
-					applyPreset('防火墙：' + mode, [
-						{ section: 'firewall', key: 'enabled', value: 'true' },
-						{ section: 'firewall', key: 'backend', value: '"' + mode + '"' }
-					]);
+					// 同时展开 [firewall.<mode>] 子段，否则切换后端的子配置仍是注释状态
+					applyPreset('防火墙：' + mode, firewallBackendPatches(mode));
 				}
 			};
 		}
@@ -1668,10 +1745,8 @@
 				var hint = '';
 				if (fwEn !== 'true') {
 					var backend = resolveFirewallBackend(map);
-					patches.unshift(
-						{ section: 'firewall', key: 'enabled', value: 'true' },
-						{ section: 'firewall', key: 'backend', value: '"' + backend + '"' }
-					);
+					// 顺带展开 [firewall.<backend>] 子段，与「防火墙」按钮的处理保持一致
+					patches = firewallBackendPatches(backend).concat(patches);
 					hint = '全 UDP 端口封禁依赖 [firewall]，已同步启用防火墙对接（backend = "' + backend + '"）。';
 				}
 				applyPreset('全 UDP 端口封禁：' + mode, patches, hint);
