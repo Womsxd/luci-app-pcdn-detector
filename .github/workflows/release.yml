@@ -93,7 +93,7 @@ jobs:
           sudo apt-get install -y 7zip || sudo apt-get install -y p7zip-full
 
       - name: Build luci-app-pcdn-detector (${{ matrix.version }})
-        run: ./scripts/build-openwrt.sh ${{ matrix.version }} --sdk --jobs "$(nproc)"
+        run: FORCE=1 ./scripts/build-openwrt.sh ${{ matrix.version }} --sdk --jobs "$(nproc)"
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
