@@ -91,9 +91,12 @@ jobs:
             libncurses-dev libc6-dev gettext python3 perl cmake ninja-build
           # 新版发行版有 7zip；旧版用 p7zip-full（tar 在受限文件系统上的兜底解压）
           sudo apt-get install -y 7zip || sudo apt-get install -y p7zip-full
+          sudo apt-mark manual dpkg-dev
+          sudo apt install --allow-remove-essential coreutils-from-gnu coreutils-from-uutils-
+          sudo apt-mark manual cpio debootstrap zstd
 
       - name: Build luci-app-pcdn-detector (${{ matrix.version }})
-        run: FORCE=1 ./scripts/build-openwrt.sh ${{ matrix.version }} --sdk --jobs "$(nproc)"
+        run: ./scripts/build-openwrt.sh ${{ matrix.version }} --sdk --jobs "$(nproc)"
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
